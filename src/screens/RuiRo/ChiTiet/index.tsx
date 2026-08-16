@@ -99,61 +99,18 @@ type TabKey =
 /* Màn hình chính                                        */
 /* ================================================================== */
 
+/* ================================================================== */
+/* Component ngoài: chỉ tìm bản ghi rồi phân nhánh                     */
+/* ================================================================== */
+
 export default function ChiTietRuiRoScreen({ code }: { code: string }) {
   const router = useRouter();
-  const toast = useToast();
-  const { user, hasRole } = useSession();
-  const lk = useLookups();
-
   const risks = useCollection(riskRepo);
-  const controls = useCollection(controlRepo);
-  const kppns = useCollection(kppnRepo);
-  const events = useCollection(eventRepo);
-  const deficiencies = useCollection(deficiencyRepo);
-  const kris = useCollection(kriRepo);
-
-  const [tab, setTab] = useState<TabKey>("tong-quan");
-  const [transiting, setTransiting] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  const canEdit = hasRole("admin", "qtrr", "owner");
 
   const risk = useMemo(
     () => risks.find((r) => r.code === code || r.id === code),
     [risks, code]
   );
-
-  /* ---------------------- Dữ liệu liên kết ---------------------- */
-
-  const linkedControls = useMemo(
-    () => (risk ? controls.filter((c) => c.riskIds.includes(risk.id)) : []),
-    [controls, risk]
-  );
-
-  const linkedDeficiencies = useMemo(
-    () => (risk ? deficiencies.filter((d) => d.riskId === risk.id) : []),
-    [deficiencies, risk]
-  );
-
-  const linkedKppns = useMemo(() => {
-    if (!risk) return [];
-    const defIds = new Set(linkedDeficiencies.map((d) => d.id));
-    return kppns.filter(
-      (k) => k.riskId === risk.id || (k.deficiencyId && defIds.has(k.deficiencyId))
-    );
-  }, [kppns, risk, linkedDeficiencies]);
-
-  const linkedEvents = useMemo(
-    () => (risk ? events.filter((e) => e.relatedRiskIds.includes(risk.id)) : []),
-    [events, risk]
-  );
-
-  const linkedKris = useMemo(
-    () => (risk ? kris.filter((k) => k.riskId === risk.id) : []),
-    [kris, risk]
-  );
-
-  /* ------------------------ Không tìm thấy ---------------------- */
 
   if (!risk) {
     return (
@@ -178,6 +135,60 @@ export default function ChiTietRuiRoScreen({ code }: { code: string }) {
       </PageContainer>
     );
   }
+
+  return <ChiTietContent risk={risk} />;
+}
+
+/* ================================================================== */
+/* Component trong: risk luôn tồn tại, kiểu là Risk                    */
+/* ================================================================== */
+
+function ChiTietContent({ risk }: { risk: Risk }) {
+  const router = useRouter();
+  const toast = useToast();
+  const { user, hasRole } = useSession();
+  const lk = useLookups();
+
+  const controls = useCollection(controlRepo);
+  const kppns = useCollection(kppnRepo);
+  const events = useCollection(eventRepo);
+  const deficiencies = useCollection(deficiencyRepo);
+  const kris = useCollection(kriRepo);
+
+  const [tab, setTab] = useState<TabKey>("tong-quan");
+  const [transiting, setTransiting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const canEdit = hasRole("admin", "qtrr", "owner");
+
+  /* ---------------------- Dữ liệu liên kết ---------------------- */
+
+  const linkedControls = useMemo(
+    () => controls.filter((c) => c.riskIds.includes(risk.id)),
+    [controls, risk.id]
+  );
+
+  const linkedDeficiencies = useMemo(
+    () => deficiencies.filter((d) => d.riskId === risk.id),
+    [deficiencies, risk.id]
+  );
+
+  const linkedKppns = useMemo(() => {
+    const defIds = new Set(linkedDeficiencies.map((d) => d.id));
+    return kppns.filter(
+      (k) => k.riskId === risk.id || (k.deficiencyId && defIds.has(k.deficiencyId))
+    );
+  }, [kppns, risk.id, linkedDeficiencies]);
+
+  const linkedEvents = useMemo(
+    () => events.filter((e) => e.relatedRiskIds.includes(risk.id)),
+    [events, risk.id]
+  );
+
+  const linkedKris = useMemo(
+    () => kris.filter((k) => k.riskId === risk.id),
+    [kris, risk.id]
+  );
 
   /* --------------------------- Hành động ------------------------ */
 
