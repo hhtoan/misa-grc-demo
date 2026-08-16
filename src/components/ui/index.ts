@@ -14,3 +14,8 @@ export * from "./Modal";
 export * from "./Toast";
 export * from "./Avatar";
 export * from "./EmptyState";
+export * from "./DataTable";
+export * from "./Pagination";
+export * from "./BulkActionBar";
+export * from "./TableToolbar";
+export * from "./FilterPanel";

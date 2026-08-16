@@ -89,7 +89,7 @@ export function RiskBadge({
 /* --------- Ánh xạ nghiệp vụ: trạng thái bản ghi dùng chung -------- */
 
 export const STATUS_TONE: Record<string, BadgeTone> = {
-  // dùng chung nhiều phân hệ
+  /* --- Rủi ro --- */
   Nháp: "neutral",
   "Chờ duyệt": "info",
   "Đã duyệt": "success",
@@ -97,21 +97,35 @@ export const STATUS_TONE: Record<string, BadgeTone> = {
   "Đang xử lý": "brand",
   "Đã đóng": "neutral",
   "Từ chối": "danger",
-  "Quá hạn": "danger",
-  "Hoàn thành": "success",
-  "Chưa bắt đầu": "neutral",
-  "Đang thực hiện": "info",
-  "Chờ nghiệm thu": "warning",
-  Huỷ: "neutral",
-  // kiểm soát
+
+  /* --- Kiểm soát --- */
+  "Đang hiệu lực": "success",
+  "Tạm ngưng": "warning",
+  "Hết hiệu lực": "neutral",
   "Hiệu quả": "success",
   "Hiệu quả một phần": "warning",
   "Không hiệu quả": "danger",
   "Chưa đánh giá": "neutral",
-  // sự kiện
+
+  /* --- Điểm yếu --- */
   "Mới ghi nhận": "info",
-  "Đang điều tra": "warning",
+  "Đang phân tích": "warning",
+  "Đã lập KPPN": "brand",
+  "Đã khắc phục": "success",
+
+  /* --- KPPN --- */
+  "Chưa bắt đầu": "neutral",
+  "Đang thực hiện": "info",
+  "Chờ nghiệm thu": "warning",
+  "Hoàn thành": "success",
+  "Quá hạn": "danger",
+  Huỷ: "neutral",
+
+  /* --- Sự kiện --- */
+  "Đang xác minh": "warning",
   "Đã xác minh": "brand",
+  "Đang điều tra": "warning",
+  "Huỷ ghi nhận": "neutral",
 };
 
 export function StatusBadge({
