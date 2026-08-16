@@ -1,4 +1,4 @@
-import ChiTietRuiRoScreen from "@/screens/RuiRo/ChiTiet";
+import RiskFormScreen from "@/screens/RuiRo/RiskForm";
 
 export default async function Page({
   params,
@@ -6,5 +6,5 @@ export default async function Page({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <ChiTietRuiRoScreen code={decodeURIComponent(id)} />;
+  return <RiskFormScreen mode="edit" code={decodeURIComponent(id)} />;
 }

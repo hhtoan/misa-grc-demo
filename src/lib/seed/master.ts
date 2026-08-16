@@ -6,67 +6,64 @@ import type {
   Process,
   Unit,
 } from "@/lib/domain/schema";
+import { seedBase } from "./base";
 
-const TS = "2026-01-05T08:00:00.000Z";
-
-function base(id: string, code: string) {
-  return { id, code, createdAt: TS, updatedAt: TS, createdBy: "system" };
-}
-
-/* ---------------------------- Đơn vị ------------------------------ */
+/* ==================================================================
+   Đơn vị - 8 bản ghi
+   ================================================================== */
 
 export const SEED_UNITS: Unit[] = [
   {
-    ...base("unit-cty", "UNIT-001"),
+    ...seedBase("unit-cty", "UNIT-001"),
     name: "MISA",
     parentId: null,
     level: "Công ty",
     managerId: "emp-ceo",
   },
   {
-    ...base("unit-sx", "UNIT-002"),
+    ...seedBase("unit-sx", "UNIT-002"),
     name: "Khối Sản xuất",
     parentId: "unit-cty",
     level: "Khối",
     managerId: "emp-binh",
   },
   {
-    ...base("unit-kd", "UNIT-003"),
+    ...seedBase("unit-kd", "UNIT-003"),
     name: "Khối Kinh doanh",
     parentId: "unit-cty",
     level: "Khối",
     managerId: "emp-son",
   },
   {
-    ...base("unit-tc", "UNIT-004"),
+    ...seedBase("unit-tc", "UNIT-004"),
     name: "Khối Tài chính",
     parentId: "unit-cty",
     level: "Khối",
     managerId: "emp-mai",
   },
   {
-    ...base("unit-it", "UNIT-005"),
+    ...seedBase("unit-it", "UNIT-005"),
     name: "Trung tâm CNTT",
     parentId: "unit-cty",
     level: "Khối",
     managerId: "emp-yen",
   },
   {
-    ...base("unit-ns", "UNIT-006"),
+    ...seedBase("unit-ns", "UNIT-006"),
     name: "Phòng Nhân sự",
     parentId: "unit-cty",
     level: "Phòng ban",
     managerId: "emp-anh",
   },
   {
-    ...base("unit-qtrr", "UNIT-007"),
+    ...seedBase("unit-qtrr", "UNIT-007"),
     name: "Ban Quản trị rủi ro",
     parentId: "unit-cty",
     level: "Phòng ban",
     managerId: "emp-ha",
   },
   {
-    ...base("unit-ktnb", "UNIT-008"),
+    ...seedBase("unit-ktnb", "UNIT-008"),
     name: "Phòng Kiểm toán nội bộ",
     parentId: "unit-cty",
     level: "Phòng ban",
@@ -74,74 +71,76 @@ export const SEED_UNITS: Unit[] = [
   },
 ];
 
-/* --------------------------- Nhân sự ------------------------------ */
+/* ==================================================================
+   Nhân sự - 10 bản ghi
+   ================================================================== */
 
 export const SEED_EMPLOYEES: Employee[] = [
   {
-    ...base("emp-ceo", "EMP-001"),
+    ...seedBase("emp-ceo", "EMP-001"),
     name: "Vũ Quốc Hùng",
     title: "Tổng giám đốc",
     unitId: "unit-cty",
     email: "hungvq@misa.com.vn",
   },
   {
-    ...base("emp-binh", "EMP-002"),
+    ...seedBase("emp-binh", "EMP-002"),
     name: "Nguyễn Văn Bình",
     title: "Giám đốc Khối Sản xuất",
     unitId: "unit-sx",
     email: "binhnv@misa.com.vn",
   },
   {
-    ...base("emp-ha", "EMP-003"),
+    ...seedBase("emp-ha", "EMP-003"),
     name: "Trần Thu Hà",
-    title: "Trưởng ban QTRR",
+    title: "Trưởng ban Quản trị rủi ro",
     unitId: "unit-qtrr",
     email: "hatt@misa.com.vn",
   },
   {
-    ...base("emp-quang", "EMP-004"),
+    ...seedBase("emp-quang", "EMP-004"),
     name: "Lê Minh Quang",
-    title: "Chuyên viên QTRR",
+    title: "Chuyên viên Quản trị rủi ro",
     unitId: "unit-qtrr",
     email: "quanglm@misa.com.vn",
   },
   {
-    ...base("emp-anh", "EMP-005"),
+    ...seedBase("emp-anh", "EMP-005"),
     name: "Phạm Ngọc Ánh",
-    title: "Trưởng phòng KTNB",
+    title: "Trưởng phòng Kiểm toán nội bộ",
     unitId: "unit-ktnb",
     email: "anhpn@misa.com.vn",
   },
   {
-    ...base("emp-yen", "EMP-006"),
+    ...seedBase("emp-yen", "EMP-006"),
     name: "Đỗ Hải Yến",
-    title: "Giám đốc CNTT",
+    title: "Giám đốc Công nghệ thông tin",
     unitId: "unit-it",
     email: "yendh@misa.com.vn",
   },
   {
-    ...base("emp-son", "EMP-007"),
+    ...seedBase("emp-son", "EMP-007"),
     name: "Hoàng Thanh Sơn",
     title: "Giám đốc Kinh doanh",
     unitId: "unit-kd",
     email: "sonht@misa.com.vn",
   },
   {
-    ...base("emp-mai", "EMP-008"),
+    ...seedBase("emp-mai", "EMP-008"),
     name: "Bùi Thị Mai",
     title: "Kế toán trưởng",
     unitId: "unit-tc",
     email: "maibt@misa.com.vn",
   },
   {
-    ...base("emp-tuan", "EMP-009"),
+    ...seedBase("emp-tuan", "EMP-009"),
     name: "Đặng Anh Tuấn",
     title: "Trưởng nhóm hạ tầng",
     unitId: "unit-it",
     email: "tuanda@misa.com.vn",
   },
   {
-    ...base("emp-linh", "EMP-010"),
+    ...seedBase("emp-linh", "EMP-010"),
     name: "Ngô Thuỳ Linh",
     title: "Chuyên viên nhân sự",
     unitId: "unit-ns",
@@ -149,162 +148,168 @@ export const SEED_EMPLOYEES: Employee[] = [
   },
 ];
 
-/* ---------------------- Nhóm rủi ro / sự kiện --------------------- */
+/* ==================================================================
+   Danh mục rủi ro và sự kiện - 11 bản ghi
+   ================================================================== */
 
 export const SEED_CATEGORIES: Category[] = [
   {
-    ...base("cat-cl", "CAT-001"),
+    ...seedBase("cat-cl", "CAT-001"),
     name: "Rủi ro chiến lược",
     group: "Rủi ro",
     parentId: null,
-    description: "Ảnh hưởng tới định hướng dài hạn",
+    description: "Ảnh hưởng tới định hướng và mục tiêu dài hạn",
   },
   {
-    ...base("cat-vh", "CAT-002"),
+    ...seedBase("cat-vh", "CAT-002"),
     name: "Rủi ro vận hành",
     group: "Rủi ro",
     parentId: null,
-    description: "Quy trình, con người, hệ thống",
+    description: "Quy trình, con người, hệ thống trong vận hành hằng ngày",
   },
   {
-    ...base("cat-tc", "CAT-003"),
+    ...seedBase("cat-tc", "CAT-003"),
     name: "Rủi ro tài chính",
     group: "Rủi ro",
     parentId: null,
-    description: "Dòng tiền, công nợ, tỷ giá",
+    description: "Dòng tiền, công nợ, tỷ giá, chi phí vốn",
   },
   {
-    ...base("cat-tt", "CAT-004"),
+    ...seedBase("cat-tt", "CAT-004"),
     name: "Rủi ro tuân thủ",
     group: "Rủi ro",
     parentId: null,
-    description: "Pháp lý, quy định nội bộ",
+    description: "Pháp lý, quy định của cơ quan quản lý và quy chế nội bộ",
   },
   {
-    ...base("cat-cntt", "CAT-005"),
+    ...seedBase("cat-cntt", "CAT-005"),
     name: "Rủi ro công nghệ thông tin",
     group: "Rủi ro",
     parentId: "cat-vh",
-    description: "Hạ tầng, phần mềm, dữ liệu",
+    description: "Hạ tầng, phần mềm, dữ liệu và tính sẵn sàng hệ thống",
   },
   {
-    ...base("cat-attt", "CAT-006"),
+    ...seedBase("cat-attt", "CAT-006"),
     name: "Rủi ro an toàn thông tin",
     group: "Rủi ro",
     parentId: "cat-cntt",
-    description: "Bảo mật, rò rỉ dữ liệu",
+    description: "Bảo mật, phân quyền, rò rỉ và lộ lọt dữ liệu",
   },
   {
-    ...base("cat-ns", "CAT-007"),
+    ...seedBase("cat-ns", "CAT-007"),
     name: "Rủi ro nhân sự",
     group: "Rủi ro",
     parentId: "cat-vh",
-    description: "Tuyển dụng, giữ chân, kế thừa",
+    description: "Tuyển dụng, giữ chân và kế thừa nhân sự trọng yếu",
   },
   {
-    ...base("cat-sk-vh", "CAT-008"),
+    ...seedBase("cat-sk-vh", "CAT-008"),
     name: "Sự cố vận hành",
     group: "Sự kiện",
     parentId: null,
-    description: "Gián đoạn nghiệp vụ",
+    description: "Gián đoạn nghiệp vụ, lỗi quy trình, chậm tiến độ",
   },
   {
-    ...base("cat-sk-attt", "CAT-009"),
+    ...seedBase("cat-sk-attt", "CAT-009"),
     name: "Sự cố an toàn thông tin",
     group: "Sự kiện",
     parentId: null,
-    description: "Tấn công, rò rỉ, lộ lọt",
+    description: "Tấn công, truy cập trái phép, rò rỉ dữ liệu",
   },
   {
-    ...base("cat-sk-tc", "CAT-010"),
+    ...seedBase("cat-sk-tc", "CAT-010"),
     name: "Sự cố tài chính",
     group: "Sự kiện",
     parentId: null,
-    description: "Sai sót, thất thoát",
+    description: "Sai sót hạch toán, thanh toán nhầm, thất thoát",
   },
   {
-    ...base("cat-sk-kh", "CAT-011"),
+    ...seedBase("cat-sk-kh", "CAT-011"),
     name: "Khiếu nại khách hàng",
     group: "Sự kiện",
     parentId: null,
-    description: "Phản ánh chất lượng dịch vụ",
+    description: "Phản ánh về chất lượng sản phẩm và dịch vụ hỗ trợ",
   },
 ];
 
-/* -------------------------- Quy trình ----------------------------- */
+/* ==================================================================
+   Quy trình - 6 bản ghi
+   ================================================================== */
 
 export const SEED_PROCESSES: Process[] = [
   {
-    ...base("prc-ban", "PRC-001"),
+    ...seedBase("prc-ban", "PRC-001"),
     name: "Quy trình bán hàng và thu tiền",
     ownerUnitId: "unit-kd",
-    description: "Từ báo giá tới thu hồi công nợ",
+    description: "Từ báo giá, ký hợp đồng tới thu hồi công nợ",
   },
   {
-    ...base("prc-mua", "PRC-002"),
+    ...seedBase("prc-mua", "PRC-002"),
     name: "Quy trình mua hàng và thanh toán",
     ownerUnitId: "unit-tc",
-    description: "Từ đề nghị mua tới thanh toán",
+    description: "Từ đề nghị mua sắm tới thanh toán nhà cung cấp",
   },
   {
-    ...base("prc-pt", "PRC-003"),
+    ...seedBase("prc-pt", "PRC-003"),
     name: "Quy trình phát triển sản phẩm",
     ownerUnitId: "unit-sx",
-    description: "Từ yêu cầu tới phát hành",
+    description: "Từ tiếp nhận yêu cầu tới phát hành phiên bản",
   },
   {
-    ...base("prc-van-hanh", "PRC-004"),
+    ...seedBase("prc-van-hanh", "PRC-004"),
     name: "Quy trình vận hành hệ thống",
     ownerUnitId: "unit-it",
-    description: "Giám sát, sao lưu, khắc phục sự cố",
+    description: "Giám sát, sao lưu, xử lý sự cố và khôi phục dịch vụ",
   },
   {
-    ...base("prc-ns", "PRC-005"),
+    ...seedBase("prc-ns", "PRC-005"),
     name: "Quy trình tuyển dụng và đào tạo",
     ownerUnitId: "unit-ns",
-    description: "Từ nhu cầu nhân sự tới hội nhập",
+    description: "Từ xác định nhu cầu nhân sự tới hội nhập và đào tạo",
   },
   {
-    ...base("prc-attt", "PRC-006"),
+    ...seedBase("prc-attt", "PRC-006"),
     name: "Quy trình quản lý an toàn thông tin",
     ownerUnitId: "unit-it",
-    description: "Phân quyền, mã hoá, giám sát",
+    description: "Phân quyền, mã hoá, giám sát và ứng phó sự cố bảo mật",
   },
 ];
 
-/* ------------------------ Hệ thống CNTT --------------------------- */
+/* ==================================================================
+   Hệ thống công nghệ thông tin - 5 bản ghi
+   ================================================================== */
 
 export const SEED_SYSTEMS: ITSystem[] = [
   {
-    ...base("sys-erp", "SYS-001"),
+    ...seedBase("sys-erp", "SYS-001"),
     name: "Hệ thống ERP nội bộ",
     type: "Ứng dụng lõi",
     ownerUnitId: "unit-tc",
     criticality: "Trọng yếu",
   },
   {
-    ...base("sys-crm", "SYS-002"),
+    ...seedBase("sys-crm", "SYS-002"),
     name: "Hệ thống CRM",
     type: "Ứng dụng nghiệp vụ",
     ownerUnitId: "unit-kd",
     criticality: "Cao",
   },
   {
-    ...base("sys-dc", "SYS-003"),
+    ...seedBase("sys-dc", "SYS-003"),
     name: "Trung tâm dữ liệu chính",
     type: "Hạ tầng",
     ownerUnitId: "unit-it",
     criticality: "Trọng yếu",
   },
   {
-    ...base("sys-hr", "SYS-004"),
+    ...seedBase("sys-hr", "SYS-004"),
     name: "Hệ thống quản trị nhân sự",
     type: "Ứng dụng nghiệp vụ",
     ownerUnitId: "unit-ns",
     criticality: "Trung bình",
   },
   {
-    ...base("sys-cloud", "SYS-005"),
+    ...seedBase("sys-cloud", "SYS-005"),
     name: "Nền tảng đám mây dịch vụ khách hàng",
     type: "Hạ tầng",
     ownerUnitId: "unit-it",
@@ -312,7 +317,9 @@ export const SEED_SYSTEMS: ITSystem[] = [
   },
 ];
 
-/* -------------- Mục tiêu (giả lập đồng bộ từ AMIS Mục tiêu) ------- */
+/* ==================================================================
+   Mục tiêu - 8 bản ghi (giả lập đồng bộ 1 chiều từ AMIS Mục tiêu)
+   ================================================================== */
 
 const SYNC_TS = "2026-08-01T02:00:00.000Z";
 
@@ -325,10 +332,10 @@ function objective(
   unitId: string,
   ownerId: string,
   target: string,
-  progress: number,
+  progress: number
 ): Objective {
   return {
-    ...base(id, code),
+    ...seedBase(id, code),
     name,
     perspective,
     level,
@@ -352,7 +359,7 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-cty",
     "emp-ceo",
     "Doanh thu 2.500 tỷ",
-    62,
+    62
   ),
   objective(
     "obj-02",
@@ -363,7 +370,7 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-cty",
     "emp-son",
     "Tỷ lệ gia hạn 90%",
-    74,
+    74
   ),
   objective(
     "obj-03",
@@ -373,8 +380,8 @@ export const SEED_OBJECTIVES: Objective[] = [
     "Khối",
     "unit-sx",
     "emp-binh",
-    "Lead time 4 tuần",
-    48,
+    "Thời gian phát hành 4 tuần",
+    48
   ),
   objective(
     "obj-04",
@@ -384,8 +391,8 @@ export const SEED_OBJECTIVES: Objective[] = [
     "Khối",
     "unit-it",
     "emp-yen",
-    "Uptime 99,9%",
-    88,
+    "Tính sẵn sàng 99,9%",
+    88
   ),
   objective(
     "obj-05",
@@ -396,7 +403,7 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-it",
     "emp-yen",
     "0 sự cố nghiêm trọng",
-    95,
+    95
   ),
   objective(
     "obj-06",
@@ -407,7 +414,7 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-tc",
     "emp-mai",
     "Nợ quá hạn dưới 3%",
-    55,
+    55
   ),
   objective(
     "obj-07",
@@ -417,8 +424,8 @@ export const SEED_OBJECTIVES: Objective[] = [
     "Phòng ban",
     "unit-ns",
     "emp-anh",
-    "Retention 92%",
-    70,
+    "Tỷ lệ giữ chân 92%",
+    70
   ),
   objective(
     "obj-08",
@@ -429,6 +436,6 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-cty",
     "emp-ha",
     "100% hạng mục bắt buộc",
-    40,
+    40
   ),
 ];
