@@ -1,0 +1,254 @@
+@import "tailwindcss";
+
+/* ============================================================
+   MISA DESIGN SYSTEM - DESIGN TOKENS
+   ============================================================ */
+@theme {
+  /* --- Brand --- */
+  --color-brand: #245fdf;
+  --color-brand-hover: #1d4fc0;
+  --color-brand-light: #f0f6fe;
+
+  /* --- Border --- */
+  --color-border-neutral: #d5d7da;
+  --color-border-light: #e9eaeb;
+
+  /* --- Text --- */
+  --color-text-primary: #101828;
+  --color-text-secondary: #717680;
+  --color-text-hint: #a4a7ae;
+
+  /* --- Icon --- */
+  --color-icon-neutral: #717680;
+
+  /* --- Background --- */
+  --color-page: #e8ecf1;
+  --color-surface: #ffffff;
+  --color-surface-alt: #fafafa;
+  --color-fill-input: #f5f5f5;
+
+  /* --- Functional palette --- */
+  --color-info: #1570ef;
+  --color-warning: #f79009;
+  --color-danger: #f04438;
+  --color-success: #12b76a;
+  --color-link: #245fdf;
+
+  /* --- Badge: mức độ rủi ro / trạng thái --- */
+  --color-lv-low-bg: #ecfdf3;
+  --color-lv-low-text: #067647;
+  --color-lv-low-border: #abefc6;
+
+  --color-lv-medium-bg: #fffaeb;
+  --color-lv-medium-text: #b54708;
+  --color-lv-medium-border: #fedf89;
+
+  --color-lv-high-bg: #fff4ed;
+  --color-lv-high-text: #c4320a;
+  --color-lv-high-border: #f9dbaf;
+
+  --color-lv-critical-bg: #fef3f2;
+  --color-lv-critical-text: #b42318;
+  --color-lv-critical-border: #fecdca;
+
+  --color-lv-neutral-bg: #f5f5f4;
+  --color-lv-neutral-text: #414651;
+  --color-lv-neutral-border: #e9eaeb;
+
+  --color-lv-info-bg: #eff8ff;
+  --color-lv-info-text: #175cd3;
+  --color-lv-info-border: #b2ddff;
+
+  /* --- Kích thước chuẩn --- */
+  --spacing-control: 32px; /* ControlHeight */
+  --spacing-header: 48px; /* Header cao 48px */
+  --spacing-pageheader: 56px; /* Page header / toolbar / footer bar */
+  --spacing-sidebar: 232px;
+  --spacing-sidebar-collapsed: 56px;
+  --spacing-filterpanel: 240px;
+
+  /* --- Bo góc --- */
+  --radius-ctrl: 8px;
+  --radius-card: 12px;
+  --radius-badge: 4px;
+
+  /* --- Shadow --- */
+  --shadow-card: 0 4px 16px 0 rgba(0, 0, 0, 0.04);
+  --shadow-dropdown: 0 4px 12px 0 rgba(0, 0, 0, 0.1);
+  --shadow-segment: 0 1px 4px 0 rgba(0, 0, 0, 0.1);
+  --shadow-modal: 0 20px 48px 0 rgba(0, 0, 0, 0.16);
+
+  /* --- Font size theo design system --- */
+  --text-h2: 20px;
+  --text-h3: 16px;
+  --text-body: 13px;
+  --text-small: 12px;
+  --text-tiny: 8px;
+}
+
+/* ============================================================
+   BASE
+   ============================================================ */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+  }
+
+  body {
+    font-family:
+      var(--font-inter),
+      -apple-system,
+      BlinkMacSystemFont,
+      sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--color-text-primary);
+    background: var(--color-page);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Bỏ spinner của input number */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type="number"] {
+    -moz-appearance: textfield;
+  }
+
+  /* Scrollbar mảnh, hiện đại */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #d5d7da;
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #b0b3b8;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+/* ============================================================
+   TYPOGRAPHY UTILITIES
+   ============================================================ */
+@utility text-h2 {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+@utility text-h3 {
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+@utility text-body {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+@utility text-small {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* ============================================================
+   COMPONENT UTILITIES DÙNG CHUNG
+   ============================================================ */
+
+/* Card / box chuẩn MISA */
+@utility misa-card {
+  background: var(--color-surface);
+  border-radius: 8px;
+  box-shadow: var(--shadow-card);
+}
+
+/* Card lớn: popup, dialog, dropdown */
+@utility misa-card-lg {
+  background: var(--color-surface);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+}
+
+/* Text gradient AI */
+@utility text-ai {
+  background: linear-gradient(98deg, #1482ff 8.87%, #cf11ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Nút AI outline theo đặc tả design system */
+@utility btn-ai-outline {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(98deg, #1482ff 8.87%, #cf11ff 100%) border-box;
+}
+
+/* Focus ring thống nhất toàn hệ thống */
+@utility focus-brand {
+  outline: none;
+  border-color: var(--color-brand);
+  box-shadow: 0 0 0 3px rgba(36, 95, 223, 0.12);
+}
+
+/* ============================================================
+   ANIMATION
+   ============================================================ */
+@keyframes misa-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes misa-slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes misa-modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@utility animate-fade-in {
+  animation: misa-fade-in 0.2s ease-out;
+}
+
+@utility animate-slide-in-right {
+  animation: misa-slide-in-right 0.22s ease-out;
+}
+
+@utility animate-modal-in {
+  animation: misa-modal-in 0.18s ease-out;
+}
