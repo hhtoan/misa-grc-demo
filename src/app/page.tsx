@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import TrangChuScreen from "@/screens/TrangChu";
 
-export default function RootPage() {
-  redirect("/trang-chu/bang-tin");
+export default function Page() {
+  return <TrangChuScreen />;
 }
