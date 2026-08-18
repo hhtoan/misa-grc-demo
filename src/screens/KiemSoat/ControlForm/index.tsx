@@ -13,6 +13,7 @@ import {
   IconSearch,
   IconShieldCheck,
   IconX,
+  IconSettings,
 } from "@tabler/icons-react";
 import {
   Badge,
@@ -31,6 +32,7 @@ import {
   Textarea,
   Tooltip,
   useToast,
+  EffectivenessBadge,
 } from "@/components/ui";
 import {
   ContentCard,
@@ -54,11 +56,11 @@ import {
   isControlEditable,
   validateControlForm,
   type ControlFormValue,
+  DESIGN_QUESTION,
+  EFFECTIVENESS_OPTIONS,
+  designEffectivenessOf,
 } from "@/lib/domain/control-utils";
-import {
-  residualLevelOf,
-  residualScoreOf,
-} from "@/lib/domain/risk-utils";
+import { residualLevelOf, residualScoreOf } from "@/lib/domain/risk-utils";
 import type { Control, Risk } from "@/lib/domain/schema";
 import { matchSearch } from "@/lib/format";
 import { useSession } from "@/config/session";
@@ -117,7 +119,7 @@ export default function ControlFormScreen({
       mode === "edit" && code
         ? controls.find((c) => c.code === code || c.id === code)
         : undefined,
-    [mode, code, controls]
+    [mode, code, controls],
   );
 
   /* ------------------ Không tìm thấy bản ghi ------------------- */
@@ -246,7 +248,7 @@ function ControlFormContent({
 
   const selectedRisks = useMemo(
     () => risks.filter((r) => form.riskIds.includes(r.id)),
-    [risks, form.riskIds]
+    [risks, form.riskIds],
   );
 
   const needSystem = form.nature !== "Thủ công";
@@ -259,7 +261,7 @@ function ControlFormContent({
     if (nature !== "Thủ công" && !form.systemId) {
       toast.info(
         "Cần chọn hệ thống CNTT",
-        `Kiểm soát ${nature.toLowerCase()} bắt buộc gắn với hệ thống thực hiện.`
+        `Kiểm soát ${nature.toLowerCase()} bắt buộc gắn với hệ thống thực hiện.`,
       );
     }
   }
@@ -269,7 +271,7 @@ function ControlFormContent({
     if (v && !form.evidenceRequirement.trim()) {
       toast.info(
         "Cần khai báo yêu cầu bằng chứng",
-        "Kiểm soát trọng yếu bắt buộc mô tả bằng chứng cần thu thập khi kiểm tra."
+        "Kiểm soát trọng yếu bắt buộc mô tả bằng chứng cần thu thập khi kiểm tra.",
       );
     }
   }
@@ -291,7 +293,7 @@ function ControlFormContent({
       setErrors(result.errors);
       toast.error(
         "Chưa lưu được",
-        `Còn ${Object.keys(result.errors).length} trường chưa hợp lệ, vui lòng kiểm tra lại.`
+        `Còn ${Object.keys(result.errors).length} trường chưa hợp lệ, vui lòng kiểm tra lại.`,
       );
       setTimeout(() => scrollToFirstError(result.errors), 0);
       return;
@@ -310,7 +312,7 @@ function ControlFormContent({
           `Đã tạo ${created.code}`,
           options.thenSubmit
             ? "Kiểm soát đã được trình duyệt."
-            : `Kiểm soát được lưu ở trạng thái ${data.status}.`
+            : `Kiểm soát được lưu ở trạng thái ${data.status}.`,
         );
         router.replace(`/kiem-soat/so-dang-ky/${created.code}`);
         return;
@@ -323,7 +325,7 @@ function ControlFormContent({
           `Đã lưu ${record.code}`,
           options.thenSubmit
             ? "Kiểm soát đã được trình duyệt."
-            : "Thông tin kiểm soát đã được cập nhật."
+            : "Thông tin kiểm soát đã được cập nhật.",
         );
         router.replace(`/kiem-soat/so-dang-ky/${record.code}`);
       }
@@ -504,7 +506,7 @@ function ControlFormContent({
                       "rounded-ctrl border border-dashed px-3 py-4 text-center text-[13px]",
                       errors.riskIds
                         ? "border-danger text-danger"
-                        : "border-border-neutral text-text-hint"
+                        : "border-border-neutral text-text-hint",
                     )}
                   >
                     Chưa gắn rủi ro nào. Kiểm soát phải gắn ít nhất 1 rủi ro mới
@@ -569,7 +571,59 @@ function ControlFormContent({
                   />
                 </div>
               </FormGrid>
+              {/* ============ Kết luận về thiết kế kiểm soát ============ */}
+              <div className="flex flex-col gap-2.5 rounded-card border border-border-light p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <IconSettings size={16} className="text-brand" />
+                  <span className="text-[13px] font-semibold text-text-primary">
+                    Đánh giá thiết kế kiểm soát
+                  </span>
+                  <span className="ml-auto">
+                    <EffectivenessBadge
+                      size="sm"
+                      value={designEffectivenessOf({
+                        designEffectiveness: form.designEffectiveness,
+                      })}
+                    />
+                  </span>
+                </div>
 
+                <div className="flex gap-2 rounded-ctrl border border-lv-info-border bg-lv-info-bg p-2.5 text-[12px] leading-4 text-lv-info-text">
+                  <IconInfoCircle size={16} className="mt-px shrink-0" />
+                  <span>
+                    Đây là kết luận về <b>bản thân thiết kế</b>, không phải về
+                    việc thực hiện. Hiệu lực <b>vận hành</b> chỉ được kết luận
+                    từ đợt kiểm tra thực tế, nên không nhập ở đây.
+                  </span>
+                </div>
+
+                <div data-field="designEffectiveness">
+                  <Select
+                    label="Hiệu lực thiết kế"
+                    clearable
+                    placeholder="Để trống nếu chưa kết luận"
+                    options={EFFECTIVENESS_OPTIONS}
+                    value={form.designEffectiveness || null}
+                    error={errors.designEffectiveness}
+                    hint={
+                      errors.designEffectiveness ? undefined : DESIGN_QUESTION
+                    }
+                    onChange={(v) => patch({ designEffectiveness: v ?? "" })}
+                  />
+                </div>
+
+                {form.designEffectiveness === "Không hiệu quả" && (
+                  <div className="flex gap-2 rounded-ctrl border border-lv-critical-border bg-lv-critical-bg p-2.5 text-[12px] leading-4 text-lv-critical-text">
+                    <IconAlertTriangle size={16} className="mt-px shrink-0" />
+                    <span>
+                      Kết luận <b>Không hiệu quả</b> về thiết kế nghĩa là kiểm
+                      soát này không đủ sức ngăn rủi ro, dù người thực hiện làm
+                      đúng quy định. Cần <b>sửa lại mô tả kiểm soát</b> trước
+                      khi trình duyệt, thay vì để hồ sơ ở trạng thái này.
+                    </span>
+                  </div>
+                )}
+              </div>
               <div data-field="systemId">
                 <Select
                   label="Hệ thống CNTT thực hiện"
@@ -865,12 +919,12 @@ function RiskPickerModal({
         if (!keyword.trim()) return true;
         return matchSearch(`${r.code} ${r.name} ${r.description}`, keyword);
       }),
-    [risks, keyword, onlyOpen, draft]
+    [risks, keyword, onlyOpen, draft],
   );
 
   function toggle(id: string) {
     setDraft((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
     );
   }
 
@@ -934,7 +988,7 @@ function RiskPickerModal({
                   "flex items-start gap-2.5 rounded-ctrl border px-3 py-2 text-left transition-colors",
                   checked
                     ? "border-brand bg-brand-light"
-                    : "border-border-light hover:bg-[#FAFAFA]"
+                    : "border-border-light hover:bg-[#FAFAFA]",
                 )}
               >
                 <span className="pt-0.5">

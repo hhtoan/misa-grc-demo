@@ -12,6 +12,7 @@ import {
   IconEye,
   IconLink,
   IconTrash,
+  IconInfoCircle,
 } from "@tabler/icons-react";
 import {
   Badge,
@@ -41,6 +42,7 @@ import {
   UserCell,
   useToast,
   type Column,
+  EffectivenessBadge,
 } from "@/components/ui";
 import {
   ContentCard,
@@ -68,6 +70,14 @@ import {
   isTestOverdue,
   nextTestDate,
   testCycleOf,
+  DESIGN_QUESTION,
+  EFFECTIVENESS_OPTIONS,
+  OPERATION_QUESTION,
+  applyTestResultToControl,
+  combineEffectiveness,
+  isTestConclusionComplete,
+  normalizeEffectiveness,
+  type ControlEffectivenessPatch,
 } from "@/lib/domain/control-utils";
 import {
   controlTestFormSchema,
@@ -76,7 +86,12 @@ import {
   type ControlTest,
   type Deficiency,
 } from "@/lib/domain/schema";
-import { formatDate, formatNumber, matchSearch, toInputDate } from "@/lib/format";
+import {
+  formatDate,
+  formatNumber,
+  matchSearch,
+  toInputDate,
+} from "@/lib/format";
 import { useTableState } from "@/lib/table";
 import { useSession } from "@/config/session";
 import { cn } from "@/lib/cn";
@@ -96,24 +111,34 @@ const RESULT_OPTIONS = CONTROL_TEST_RESULTS.map((v) => ({
         : "Kiểm soát không vận hành hoặc vận hành sai, phải lập điểm yếu",
 }));
 
-const METHOD_OPTIONS = CONTROL_TEST_METHODS.map((v) => ({ value: v, label: v }));
+const METHOD_OPTIONS = CONTROL_TEST_METHODS.map((v) => ({
+  value: v,
+  label: v,
+}));
 
 const SEVERITY_OPTIONS = RISK_LEVELS.map((v) => ({ value: v, label: v }));
 
 /** Mức nghiêm trọng gợi ý cho điểm yếu sinh ra từ kết quả kiểm tra */
 function suggestSeverity(
   result: string,
-  isKeyControl: boolean
+  isKeyControl: boolean,
 ): (typeof RISK_LEVELS)[number] {
   if (result === "Không hiệu quả") return isKeyControl ? "Trọng yếu" : "Cao";
-  if (result === "Hiệu quả một phần") return isKeyControl ? "Cao" : "Trung bình";
+  if (result === "Hiệu quả một phần")
+    return isKeyControl ? "Cao" : "Trung bình";
   return "Thấp";
 }
 
 /** Hạn khắc phục gợi ý theo mức nghiêm trọng */
 function suggestDueDate(detectedDate: string, severity: string): string {
   const days =
-    severity === "Trọng yếu" ? 30 : severity === "Cao" ? 60 : severity === "Trung bình" ? 90 : 120;
+    severity === "Trọng yếu"
+      ? 30
+      : severity === "Cao"
+        ? 60
+        : severity === "Trung bình"
+          ? 90
+          : 120;
   const d = new Date(detectedDate || new Date());
   d.setDate(d.getDate() + days);
   return toInputDate(d);
@@ -166,11 +191,11 @@ export default function KetQuaKiemTraScreen() {
 
   const controlMap = useMemo(
     () => new Map(controls.map((c) => [c.id, c])),
-    [controls]
+    [controls],
   );
   const defMap = useMemo(
     () => new Map(deficiencies.map((d) => [d.id, d])),
-    [deficiencies]
+    [deficiencies],
   );
 
   const controlOptions = useMemo(
@@ -180,7 +205,7 @@ export default function KetQuaKiemTraScreen() {
         label: c.name,
         description: `${c.code} - ${c.type} - ${c.status}`,
       })),
-    [controls]
+    [controls],
   );
 
   /* ------------------- Kiểm soát đến hạn kiểm tra ---------------- */
@@ -190,7 +215,7 @@ export default function KetQuaKiemTraScreen() {
       controls
         .filter((c) => isTestOverdue(c) || isTestDueSoon(c) || isNeverTested(c))
         .sort((a, b) => (daysToNextTest(a) ?? 0) - (daysToNextTest(b) ?? 0)),
-    [controls]
+    [controls],
   );
 
   /* --------------------------- Table state ----------------------- */
@@ -283,7 +308,7 @@ export default function KetQuaKiemTraScreen() {
       "Đã xoá đợt kiểm tra",
       linkedDef
         ? `${x.code} đã bị xoá. Điểm yếu ${linkedDef.code} vẫn được giữ lại để theo dõi.`
-        : `${x.code} đã bị xoá, kết quả kiểm tra của kiểm soát được tính lại.`
+        : `${x.code} đã bị xoá, kết quả kiểm tra của kiểm soát được tính lại.`,
     );
   }
 
@@ -311,7 +336,9 @@ export default function KetQuaKiemTraScreen() {
                 <b className="shrink-0 text-[12px] text-brand">
                   {c?.code ?? "Đã xoá"}
                 </b>
-                <span className="truncate">{c?.name ?? "Kiểm soát không còn tồn tại"}</span>
+                <span className="truncate">
+                  {c?.name ?? "Kiểm soát không còn tồn tại"}
+                </span>
                 {c?.isKeyControl && (
                   <Badge tone="brand" size="sm">
                     TY
@@ -356,13 +383,17 @@ export default function KetQuaKiemTraScreen() {
       sortable: true,
       render: (x) => {
         const rate =
-          x.sampleSize === 0 ? 0 : Math.round((x.failCount / x.sampleSize) * 100);
+          x.sampleSize === 0
+            ? 0
+            : Math.round((x.failCount / x.sampleSize) * 100);
         return (
           <Tooltip content={`Tỷ lệ mẫu lỗi ${rate}%`}>
             <span
               className={cn(
                 "text-[13px]",
-                x.failCount > 0 ? "font-medium text-danger" : "text-text-secondary"
+                x.failCount > 0
+                  ? "font-medium text-danger"
+                  : "text-text-secondary",
               )}
             >
               {formatNumber(x.sampleSize)} / {formatNumber(x.failCount)}
@@ -372,11 +403,30 @@ export default function KetQuaKiemTraScreen() {
       },
     },
     {
-      key: "result",
-      header: "Kết luận",
-      width: 175,
-      sortable: true,
-      render: (x) => <StatusBadge status={x.result} />,
+      key: "designResult",
+      header: "Thiết kế",
+      width: 130,
+      render: (t) => (
+        <EffectivenessBadge
+          size="sm"
+          short
+          dimension="Thiết kế"
+          value={t.designResult || "Chưa đánh giá"}
+        />
+      ),
+    },
+    {
+      key: "operationResult",
+      header: "Vận hành",
+      width: 130,
+      render: (t) => (
+        <EffectivenessBadge
+          size="sm"
+          short
+          dimension="Vận hành"
+          value={t.operationResult || t.result || "Chưa đánh giá"}
+        />
+      ),
     },
     {
       key: "deficiency",
@@ -454,7 +504,7 @@ export default function KetQuaKiemTraScreen() {
               onClick={() =>
                 toast.info(
                   "Đang xuất khẩu",
-                  `Chuẩn bị tệp cho ${t.total} đợt kiểm tra (giả lập).`
+                  `Chuẩn bị tệp cho ${t.total} đợt kiểm tra (giả lập).`,
                 )
               }
             >
@@ -540,8 +590,8 @@ export default function KetQuaKiemTraScreen() {
 
               {dueControls.length > 6 && (
                 <div className="border-t border-border-light px-4 py-2 text-center text-[12px] text-text-secondary">
-                  Còn {dueControls.length - 6} kiểm soát khác, xem đầy đủ tại tab
-                  Cần chú ý của sổ đăng ký kiểm soát.
+                  Còn {dueControls.length - 6} kiểm soát khác, xem đầy đủ tại
+                  tab Cần chú ý của sổ đăng ký kiểm soát.
                 </div>
               )}
             </ContentCard>
@@ -636,7 +686,9 @@ export default function KetQuaKiemTraScreen() {
                   emptyTitle="Không có đợt kiểm tra phù hợp"
                   emptyDescription="Thử bỏ bớt điều kiện lọc hoặc xoá từ khoá."
                   rowClassName={(x) =>
-                    x.result === "Không hiệu quả" ? "!bg-lv-critical-bg" : undefined
+                    x.result === "Không hiệu quả"
+                      ? "!bg-lv-critical-bg"
+                      : undefined
                   }
                 />
                 <Pagination
@@ -677,9 +729,11 @@ export default function KetQuaKiemTraScreen() {
 
       <TestDetailModal
         test={detail}
-        control={detail ? controlMap.get(detail.controlId) ?? null : null}
+        control={detail ? (controlMap.get(detail.controlId) ?? null) : null}
         deficiency={
-          detail?.deficiencyId ? defMap.get(detail.deficiencyId) ?? null : null
+          detail?.deficiencyId
+            ? (defMap.get(detail.deficiencyId) ?? null)
+            : null
         }
         lk={lk}
         onClose={() => setDetail(null)}
@@ -735,7 +789,7 @@ function DueRow({
           "flex h-8 w-8 shrink-0 items-center justify-center rounded-ctrl",
           overdue
             ? "bg-lv-critical-bg text-lv-critical-text"
-            : "bg-lv-medium-bg text-lv-medium-text"
+            : "bg-lv-medium-bg text-lv-medium-text",
         )}
       >
         <IconCalendarExclamation size={16} />
@@ -811,7 +865,7 @@ function MiniCard({
       <span
         className={cn(
           "flex h-10 w-10 shrink-0 items-center justify-center rounded-ctrl",
-          style[tone]
+          style[tone],
         )}
       >
         {icon}
@@ -849,6 +903,8 @@ interface TestFormState {
   defOwnerId: string;
   defDueDate: string;
   defRootCause: string;
+  designResult: string;
+  operationResult: string;
 }
 
 function emptyTestForm(preset = ""): TestFormState {
@@ -870,6 +926,8 @@ function emptyTestForm(preset = ""): TestFormState {
     defOwnerId: "",
     defDueDate: "",
     defRootCause: "",
+    designResult: "",
+    operationResult: "",
   };
 }
 
@@ -922,8 +980,10 @@ function TestFormModal({
               defOwnerId: "",
               defDueDate: "",
               defRootCause: "",
+              designResult: record.designResult ?? "",
+              operationResult: record.operationResult ?? "",
             }
-          : emptyTestForm(presetControl)
+          : emptyTestForm(presetControl),
       );
     }
   }
@@ -1019,6 +1079,13 @@ function TestFormModal({
       }
     }
 
+    if (!isTestConclusionComplete(form)) {
+      const err: Record<string, string> = {};
+      err.operationResult =
+        "Bắt buộc kết luận hiệu lực vận hành, vì đây là mục đích của đợt kiểm tra";
+      setErrors(err);
+      return;
+    }
     /* --------------------------- Lưu -------------------------- */
 
     if (record) {
@@ -1029,12 +1096,24 @@ function TestFormModal({
       }
       onDone(
         `Đã lưu ${record.code}`,
-        "Kết quả kiểm tra gần nhất của kiểm soát đã được cập nhật lại."
+        "Kết quả kiểm tra gần nhất của kiểm soát đã được cập nhật lại.",
       );
       return;
     }
 
     const created = controlTestRepo.create(parsed.data, actor);
+    const cRepo = controlRepo as unknown as {
+      update: (id: string, patch: ControlEffectivenessPatch) => void;
+    };
+
+    /* Đợt kiểm tra là nguồn sinh ra hiệu lực vận hành, nên phải
+         đẩy kết luận ngược về hồ sơ kiểm soát ngay tại đây */
+    const patch = applyTestResultToControl({
+      designResult: form.designResult,
+      operationResult: form.operationResult,
+      testDate: form.testDate,
+    });
+    cRepo.update(form.controlId, patch);
 
     let defCode = "";
     if (createDeficiency && control) {
@@ -1057,7 +1136,7 @@ function TestFormModal({
           statusNote: "",
           kppnIds: [],
         },
-        actor
+        actor,
       );
       defCode = def.code;
       controlTestRepo.update(created.id, { deficiencyId: def.id });
@@ -1065,11 +1144,16 @@ function TestFormModal({
 
     syncControlFromTests(parsed.data.controlId);
 
+    const overall = combineEffectiveness(
+      normalizeEffectiveness(form.designResult),
+      normalizeEffectiveness(form.operationResult),
+    );
+
     onDone(
-      `Đã ghi nhận ${created.code}`,
-      defCode
-        ? `Hệ thống đã tự tạo điểm yếu ${defCode} và cập nhật kết quả kiểm tra của ${control?.code}.`
-        : `Kết quả kiểm tra của ${control?.code ?? "kiểm soát"} đã được cập nhật.`
+      "Đã ghi nhận kết quả kiểm tra",
+      overall === "Không hiệu quả"
+        ? "Hiệu quả chung của kiểm soát chuyển sang Không hiệu quả. Nên lập điểm yếu để theo dõi việc khắc phục."
+        : `Hiệu quả chung của kiểm soát cập nhật thành ${overall}.`,
     );
   }
 
@@ -1180,14 +1264,71 @@ function TestFormModal({
           />
         </FormGrid>
 
-        <Select
-          label="Kết luận"
-          required
-          options={RESULT_OPTIONS}
-          value={form.result}
-          error={errors.result}
-          onChange={(v) => changeResult(v ?? "Hiệu quả")}
-        />
+        {/* ============ Kết luận theo hai chiều ============ */}
+        <div className="flex flex-col gap-3 rounded-card border border-border-light p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[13px] font-semibold text-text-primary">
+              Kết luận đợt kiểm tra
+            </span>
+            <span className="ml-auto">
+              <EffectivenessBadge
+                value={combineEffectiveness(
+                  normalizeEffectiveness(form.designResult),
+                  normalizeEffectiveness(form.operationResult),
+                )}
+              />
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div data-field="designResult">
+              <Select
+                label="Hiệu lực thiết kế"
+                clearable
+                placeholder="Để trống nếu đợt này không xét thiết kế"
+                options={EFFECTIVENESS_OPTIONS}
+                value={form.designResult || null}
+                hint={DESIGN_QUESTION}
+                onChange={(v) => patch({ designResult: v ?? "" })}
+              />
+            </div>
+
+            <div data-field="operationResult">
+              <Select
+                label="Hiệu lực vận hành"
+                required
+                placeholder="Bắt buộc kết luận"
+                options={EFFECTIVENESS_OPTIONS}
+                value={form.operationResult || null}
+                error={errors.operationResult}
+                hint={errors.operationResult ? undefined : OPERATION_QUESTION}
+                onChange={(v) => patch({ operationResult: v ?? "" })}
+              />
+            </div>
+          </div>
+
+          {form.designResult === "Không hiệu quả" && (
+            <div className="flex gap-2 rounded-ctrl border border-lv-critical-border bg-lv-critical-bg p-2.5 text-[12px] leading-4 text-lv-critical-text">
+              <IconAlertTriangle size={16} className="mt-px shrink-0" />
+              <span>
+                Thiết kế không hiệu quả thì việc chấn chỉnh người thực hiện{" "}
+                <b>không giải quyết được gì</b>. Sau khi lưu, hãy lập điểm yếu
+                và sửa lại chính thiết kế kiểm soát.
+              </span>
+            </div>
+          )}
+
+          {form.designResult !== "Không hiệu quả" &&
+            form.operationResult === "Không hiệu quả" && (
+              <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
+                <IconAlertTriangle size={16} className="mt-px shrink-0" />
+                <span>
+                  Thiết kế phù hợp nhưng không được thực hiện. Việc cần làm là{" "}
+                  <b>chấn chỉnh người thực hiện</b>, không phải sửa quy định.
+                </span>
+              </div>
+            )}
+        </div>
 
         <Textarea
           label="Phát hiện"
@@ -1334,7 +1475,9 @@ function TestDetailModal({
       open={!!test}
       onClose={onClose}
       size="lg"
-      title={test ? `${test.code} - ${control?.code ?? "Kiểm soát đã xoá"}` : ""}
+      title={
+        test ? `${test.code} - ${control?.code ?? "Kiểm soát đã xoá"}` : ""
+      }
       headerRight={test ? <StatusBadge status={test.result} /> : undefined}
       footer={
         <>
@@ -1342,7 +1485,10 @@ function TestDetailModal({
             Đóng
           </Button>
           {control && (
-            <Button variant="primary" onClick={() => onOpenControl(control.code)}>
+            <Button
+              variant="primary"
+              onClick={() => onOpenControl(control.code)}
+            >
               Xem kiểm soát
             </Button>
           )}

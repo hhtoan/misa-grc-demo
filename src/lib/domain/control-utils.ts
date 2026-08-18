@@ -291,6 +291,7 @@ export function emptyControlForm(
     systemId: "",
     isKeyControl: false,
     effectiveDate: toInputDate(new Date()),
+    designEffectiveness: "",
     expireDate: "",
     status: "Nháp",
     statusNote: "",
@@ -315,6 +316,7 @@ export function controlToForm(c: Control): ControlFormValue {
     systemId: c.systemId,
     isKeyControl: c.isKeyControl,
     effectiveDate: c.effectiveDate,
+    designEffectiveness: c.designEffectiveness ?? "",
     expireDate: c.expireDate,
     status: c.status,
     statusNote: c.statusNote,
@@ -610,4 +612,113 @@ export function effectivenessNarrative(c: ControlEffectivenessInput): string {
     return "Kiểm soát được thiết kế đúng và đang vận hành đúng thiết kế.";
 
   return "Kiểm soát còn khe hở về thiết kế hoặc thực hiện chưa đều, cần theo dõi và cải thiện.";
+}
+
+/* ==================================================================
+   ===== BỔ SUNG LÔ C2: NGUỒN SINH RA DE VÀ OE =====
+
+   Phân vai rõ ràng:
+     - DE (thiết kế)  do người thiết kế và người duyệt kết luận,
+                      nhập ở form kiểm soát
+     - OE (vận hành)  do đợt kiểm tra hiệu lực sinh ra,
+                      KHÔNG nhập tay ở form kiểm soát
+
+   Lý do phân vai: nếu cho nhập OE ở form thiết kế thì người dùng tự
+   khẳng định kiểm soát đang chạy tốt mà không cần bằng chứng nào,
+   đúng cái sai mà CRO đã chỉ ra ở phần điểm rủi ro còn lại.
+   ================================================================== */
+
+/** Tuỳ chọn cho Select, dùng chung ở form kiểm soát và form kết quả */
+export const EFFECTIVENESS_OPTIONS: {
+  value: EffectivenessValue;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "Hiệu quả",
+    label: "Hiệu quả",
+    description: "Đạt yêu cầu, không phát hiện khe hở đáng kể",
+  },
+  {
+    value: "Hiệu quả một phần",
+    label: "Hiệu quả một phần",
+    description: "Còn khe hở hoặc thực hiện chưa đều, cần cải thiện",
+  },
+  {
+    value: "Không hiệu quả",
+    label: "Không hiệu quả",
+    description: "Không đạt yêu cầu, phải xử lý ngay",
+  },
+];
+
+/** Câu hỏi nghiệp vụ của từng chiều, dùng làm hint trên form */
+export const DESIGN_QUESTION =
+  "Nếu kiểm soát được thực hiện đúng như mô tả thì có ngăn được rủi ro không";
+
+export const OPERATION_QUESTION =
+  "Trên thực tế kiểm soát có đang được thực hiện đúng thiết kế không";
+
+/* ------------------------------------------------------------------ */
+/* Áp kết quả một đợt kiểm tra vào hồ sơ kiểm soát                     */
+/* ------------------------------------------------------------------ */
+
+export interface TestResultInput {
+  designResult?: string | null;
+  operationResult?: string | null;
+  /** Kết luận chung của đợt, dùng làm dự phòng khi thiếu 2 chiều */
+  result?: string | null;
+  testDate?: string | null;
+}
+
+export interface ControlEffectivenessPatch {
+  designEffectiveness?: string;
+  operationEffectiveness?: string;
+  lastAssessedAt?: string;
+  lastTestDate?: string;
+  /** Vẫn ghi trường cũ trong một lô để các màn chưa chuyển còn đọc được */
+  lastTestResult?: string;
+}
+
+/**
+ * Sinh patch cập nhật hồ sơ kiểm soát từ kết quả một đợt kiểm tra.
+ *
+ * Ba nguyên tắc:
+ *   1. Đợt kiểm tra luôn kết luận được OE, vì đó là mục đích của nó
+ *   2. Đợt kiểm tra CHỈ ghi đè DE khi người kiểm tra thực sự kết luận
+ *      về thiết kế, tránh xoá mất kết luận của người duyệt
+ *   3. lastTestResult vẫn được ghi để tương thích ngược trong một lô
+ */
+export function applyTestResultToControl(
+  test: TestResultInput,
+): ControlEffectivenessPatch {
+  const patch: ControlEffectivenessPatch = {};
+
+  const design = normalizeEffectiveness(test.designResult);
+  const operation = normalizeEffectiveness(test.operationResult ?? test.result);
+
+  if (design !== NOT_ASSESSED) patch.designEffectiveness = design;
+  if (operation !== NOT_ASSESSED) patch.operationEffectiveness = operation;
+
+  const date = (test.testDate ?? "").trim();
+  if (date) {
+    patch.lastAssessedAt = date;
+    patch.lastTestDate = date;
+  }
+
+  /* Trường cũ nhận kết luận xấu nhất trong hai chiều, giữ đúng tinh
+     thần thận trọng của các màn hình chưa chuyển sang hiệu quả chung */
+  const combined = combineEffectiveness(design, operation);
+  if (combined !== NOT_ASSESSED) patch.lastTestResult = combined;
+
+  return patch;
+}
+
+/**
+ * Đợt kiểm tra này có kết luận đủ hai chiều chưa.
+ * Dùng để chặn lưu khi người kiểm tra bỏ trống chiều vận hành.
+ */
+export function isTestConclusionComplete(test: TestResultInput): boolean {
+  return (
+    normalizeEffectiveness(test.operationResult ?? test.result) !== NOT_ASSESSED
+  );
 }

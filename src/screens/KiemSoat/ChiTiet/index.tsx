@@ -88,6 +88,7 @@ import type {
 import { formatDate, formatDateTime, formatNumber } from "@/lib/format";
 import { useSession } from "@/config/session";
 import { cn } from "@/lib/cn";
+import ControlEffectivenessPanel from "./ControlEffectivenessPanel";
 
 /* ================================================================== */
 
@@ -105,7 +106,7 @@ export default function ChiTietKiemSoatScreen({ code }: { code: string }) {
 
   const control = useMemo(
     () => controls.find((c) => c.code === code || c.id === code),
-    [controls, code]
+    [controls, code],
   );
 
   if (!control) {
@@ -161,7 +162,7 @@ function ChiTietContent({ control }: { control: Control }) {
 
   const linkedRisks = useMemo(
     () => risks.filter((r) => control.riskIds.includes(r.id)),
-    [risks, control.riskIds]
+    [risks, control.riskIds],
   );
 
   const linkedTests = useMemo(
@@ -169,12 +170,12 @@ function ChiTietContent({ control }: { control: Control }) {
       tests
         .filter((t) => t.controlId === control.id)
         .sort((a, b) => (a.testDate < b.testDate ? 1 : -1)),
-    [tests, control.id]
+    [tests, control.id],
   );
 
   const linkedDeficiencies = useMemo(
     () => deficiencies.filter((d) => d.controlId === control.id),
-    [deficiencies, control.id]
+    [deficiencies, control.id],
   );
 
   const linkedExceptions = useMemo(
@@ -182,7 +183,7 @@ function ChiTietContent({ control }: { control: Control }) {
       exceptions
         .filter((e) => e.controlId === control.id)
         .sort((a, b) => (a.startDate < b.startDate ? 1 : -1)),
-    [exceptions, control.id]
+    [exceptions, control.id],
   );
 
   const linkedKppns = useMemo(() => {
@@ -200,11 +201,11 @@ function ChiTietContent({ control }: { control: Control }) {
 
   const activeException = useMemo(
     () => linkedExceptions.find((e) => e.status === "Đã duyệt"),
-    [linkedExceptions]
+    [linkedExceptions],
   );
 
   const openDeficiencies = linkedDeficiencies.filter(
-    (d) => d.status !== "Đã đóng"
+    (d) => d.status !== "Đã đóng",
   );
 
   /* --------------------------- Hành động ------------------------ */
@@ -213,7 +214,7 @@ function ChiTietContent({ control }: { control: Control }) {
     if (!editable) {
       toast.warning(
         "Không sửa được",
-        `Kiểm soát đang ở trạng thái ${control.status} nên bị khoá chỉnh sửa.`
+        `Kiểm soát đang ở trạng thái ${control.status} nên bị khoá chỉnh sửa.`,
       );
       return;
     }
@@ -242,7 +243,7 @@ function ChiTietContent({ control }: { control: Control }) {
         lastTestDate: "",
         evidenceRequirement: control.evidenceRequirement,
       },
-      user.name
+      user.name,
     );
     toast.success("Đã nhân bản", `Bản sao ${created.code} ở trạng thái Nháp.`);
     router.push(`/kiem-soat/so-dang-ky/${created.code}`);
@@ -252,7 +253,7 @@ function ChiTietContent({ control }: { control: Control }) {
     if (!isControlDeletable(control.status)) {
       toast.error(
         "Không xoá được",
-        `Chỉ xoá được kiểm soát ở trạng thái Nháp. ${control.code} đang ở trạng thái ${control.status}.`
+        `Chỉ xoá được kiểm soát ở trạng thái Nháp. ${control.code} đang ở trạng thái ${control.status}.`,
       );
       return;
     }
@@ -327,6 +328,24 @@ function ChiTietContent({ control }: { control: Control }) {
 
       <PageBody className="pt-3">
         <div className="flex flex-col gap-4">
+          <ControlEffectivenessPanel
+            control={control}
+            editable={canEdit}
+            testerName={(id) => lk.employeeName(id, "không rõ")}
+            onCreateTest={() =>
+              router.push(`/kiem-soat/ket-qua-kiem-tra?control=${control.code}`)
+            }
+            onEditDesign={() =>
+              router.push(`/kiem-soat/so-dang-ky/${control.code}/sua`)
+            }
+            onCreateKppn={() =>
+              router.push(`/khac-phuc/kppn/them-moi?control=${control.code}`)
+            }
+            onLinkRisk={() =>
+              router.push(`/kiem-soat/so-dang-ky/${control.code}/sua`)
+            }
+          />
+
           {/* ================== Dải cảnh báo ================== */}
           {isControlExpired(control) && (
             <AlertBar
@@ -462,7 +481,7 @@ function ChiTietContent({ control }: { control: Control }) {
                         ? "text-danger"
                         : isTestDueSoon(control)
                           ? "text-lv-medium-text"
-                          : "text-text-primary"
+                          : "text-text-primary",
                     )}
                   >
                     {formatDate(due)}
@@ -522,7 +541,11 @@ function ChiTietContent({ control }: { control: Control }) {
 
             <div className="p-4">
               {tab === "tong-quan" && (
-                <TabTongQuan control={control} lk={lk} testCount={linkedTests.length} />
+                <TabTongQuan
+                  control={control}
+                  lk={lk}
+                  testCount={linkedTests.length}
+                />
               )}
               {tab === "rui-ro" && (
                 <TabRuiRo rows={linkedRisks} lk={lk} control={control} />
@@ -601,7 +624,11 @@ function HealthCard({ value, status }: { value: number; status: string }) {
     value >= 75
       ? { bar: "bg-success", text: "text-lv-low-text", label: "Tốt" }
       : value >= 45
-        ? { bar: "bg-warning", text: "text-lv-medium-text", label: "Cần theo dõi" }
+        ? {
+            bar: "bg-warning",
+            text: "text-lv-medium-text",
+            label: "Cần theo dõi",
+          }
         : { bar: "bg-danger", text: "text-lv-critical-text", label: "Yếu" };
 
   return (
@@ -613,9 +640,7 @@ function HealthCard({ value, status }: { value: number; status: string }) {
         </span>
         <span className="text-[12px] text-text-secondary">/ 100</span>
         <Badge
-          tone={
-            value >= 75 ? "success" : value >= 45 ? "warning" : "danger"
-          }
+          tone={value >= 75 ? "success" : value >= 45 ? "warning" : "danger"}
           dot
           className="ml-auto"
         >
@@ -668,7 +693,7 @@ function AlertBar({
     <div
       className={cn(
         "flex flex-wrap items-center gap-3 rounded-card border px-3 py-2.5",
-        style
+        style,
       )}
     >
       <Icon size={18} className="shrink-0" />
@@ -729,7 +754,7 @@ function SummaryLine({
           key={it.label}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-ctrl px-2.5 py-1 text-[12px] font-medium",
-            it.tone ? style[it.tone] : "bg-surface-alt text-text-secondary"
+            it.tone ? style[it.tone] : "bg-surface-alt text-text-secondary",
           )}
         >
           {it.label}
@@ -856,7 +881,7 @@ function TabTongQuan({
               <span
                 className={cn(
                   isControlExpired(control) && "font-medium text-danger",
-                  isExpiringSoon(control) && "font-medium text-lv-medium-text"
+                  isExpiringSoon(control) && "font-medium text-lv-medium-text",
                 )}
               >
                 {formatDate(control.expireDate)}
@@ -983,7 +1008,7 @@ function TabRuiRo({
               <span
                 className={cn(
                   "block h-full rounded-full",
-                  pct > 0 ? "bg-success" : "bg-[#D5D7DA]"
+                  pct > 0 ? "bg-success" : "bg-[#D5D7DA]",
                 )}
                 style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
               />
@@ -1005,7 +1030,7 @@ function TabRuiRo({
 
   const zeroTolerance = rows.filter((r) => r.isZeroTolerance).length;
   const highResidual = rows.filter(
-    (r) => residualLevelOf(r) === "Cao" || residualLevelOf(r) === "Trọng yếu"
+    (r) => residualLevelOf(r) === "Cao" || residualLevelOf(r) === "Trọng yếu",
   ).length;
   const noReduction = rows.filter((r) => reductionPercentOf(r) === 0).length;
 
@@ -1014,15 +1039,24 @@ function TabRuiRo({
       <SummaryLine
         items={[
           { label: "Rủi ro đang phủ", value: rows.length, tone: "brand" },
-          { label: "Mức còn lại Cao trở lên", value: highResidual, tone: "danger" },
-          { label: "Không khoan nhượng", value: zeroTolerance, tone: "warning" },
+          {
+            label: "Mức còn lại Cao trở lên",
+            value: highResidual,
+            tone: "danger",
+          },
+          {
+            label: "Không khoan nhượng",
+            value: zeroTolerance,
+            tone: "warning",
+          },
         ]}
         right={
           <span className="text-[12px] text-text-secondary">
             Mức giảm bình quân:{" "}
             <b className="text-text-primary">
               {Math.round(
-                rows.reduce((s, r) => s + reductionPercentOf(r), 0) / rows.length
+                rows.reduce((s, r) => s + reductionPercentOf(r), 0) /
+                  rows.length,
               )}
               %
             </b>
@@ -1035,8 +1069,8 @@ function TabRuiRo({
           <IconAlertTriangle size={16} className="mt-px shrink-0" />
           <span>
             Có <b>{noReduction}</b> rủi ro chưa ghi nhận mức giảm nào dù đã có
-            kiểm soát đang hiệu lực. Nên đánh giá lại điểm rủi ro còn lại của các
-            rủi ro đó.
+            kiểm soát đang hiệu lực. Nên đánh giá lại điểm rủi ro còn lại của
+            các rủi ro đó.
           </span>
         </div>
       )}
@@ -1126,9 +1160,7 @@ function TabKiemTra({
       key: "method",
       header: "Phương pháp",
       width: 160,
-      render: (t) => (
-        <span className="text-text-secondary">{t.method}</span>
-      ),
+      render: (t) => <span className="text-text-secondary">{t.method}</span>,
     },
     {
       key: "sample",
@@ -1139,7 +1171,7 @@ function TabKiemTra({
         <span
           className={cn(
             "text-[13px]",
-            t.failCount > 0 ? "font-medium text-danger" : "text-text-secondary"
+            t.failCount > 0 ? "font-medium text-danger" : "text-text-secondary",
           )}
         >
           {formatNumber(t.sampleSize)} / {formatNumber(t.failCount)}
@@ -1168,8 +1200,7 @@ function TabKiemTra({
       header: "Điểm yếu",
       width: 140,
       render: (t) => {
-        if (!t.deficiencyId)
-          return <span className="text-text-hint">--</span>;
+        if (!t.deficiencyId) return <span className="text-text-hint">--</span>;
         const d = defMap.get(t.deficiencyId);
         return (
           <CodeCell
@@ -1306,7 +1337,7 @@ function TabDiemYeu({
                   "flex flex-col gap-2 rounded-ctrl border p-3",
                   e.status === "Đã duyệt"
                     ? "border-lv-info-border bg-lv-info-bg/40"
-                    : "border-border-light"
+                    : "border-border-light",
                 )}
               >
                 <div className="flex flex-wrap items-center gap-2">
@@ -1335,10 +1366,7 @@ function TabDiemYeu({
                       size={22}
                     />
                   </ReadField>
-                  <ReadField
-                    label="Biện pháp bù đắp"
-                    className="md:col-span-2"
-                  >
+                  <ReadField label="Biện pháp bù đắp" className="md:col-span-2">
                     <span className="leading-5">{e.compensatingControl}</span>
                   </ReadField>
                   <ReadField label="Người phê duyệt">
@@ -1471,7 +1499,9 @@ function TabLichSu({
       });
     }
 
-    return out.filter((x) => !!x.date).sort((a, b) => (a.date < b.date ? 1 : -1));
+    return out
+      .filter((x) => !!x.date)
+      .sort((a, b) => (a.date < b.date ? 1 : -1));
   }, [control, tests, deficiencies, exceptions]);
 
   const toneClass: Record<TimelineItem["tone"], string> = {
@@ -1486,8 +1516,8 @@ function TabLichSu({
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2 rounded-ctrl bg-lv-info-bg px-3 py-2 text-[12px] text-lv-info-text">
         <IconHistory size={15} />
-        Dòng thời gian tổng hợp từ các mốc nghiệp vụ của kiểm soát. Bản demo chưa
-        lưu nhật ký thao tác chi tiết của người dùng.
+        Dòng thời gian tổng hợp từ các mốc nghiệp vụ của kiểm soát. Bản demo
+        chưa lưu nhật ký thao tác chi tiết của người dùng.
       </div>
 
       <ol className="flex flex-col">
@@ -1503,7 +1533,7 @@ function TabLichSu({
               <span
                 className={cn(
                   "flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
-                  toneClass[it.tone]
+                  toneClass[it.tone],
                 )}
               >
                 {it.icon}
@@ -1582,7 +1612,7 @@ function TransitionModal({
     if (stopping && riskCount > 0) {
       onWarn(
         "Kiểm soát ngừng vận hành",
-        `Có ${riskCount} rủi ro đang được phủ bởi kiểm soát này, cần đánh giá lại mức rủi ro còn lại.`
+        `Có ${riskCount} rủi ro đang được phủ bởi kiểm soát này, cần đánh giá lại mức rủi ro còn lại.`,
       );
     }
 
@@ -1593,7 +1623,7 @@ function TransitionModal({
 
     onDone(
       `${control.code}: ${selected.label}`,
-      `Trạng thái chuyển từ ${control.status} sang ${selected.to}.`
+      `Trạng thái chuyển từ ${control.status} sang ${selected.to}.`,
     );
   }
 
@@ -1682,7 +1712,8 @@ function TransitionModal({
                 <span>
                   Sau khi ban hành, chu kỳ kiểm tra hiệu lực là{" "}
                   <b>{testCycleOf(control)} ngày</b> theo tần suất vận hành{" "}
-                  {control.frequency.toLowerCase()}. Hệ thống sẽ nhắc khi tới hạn.
+                  {control.frequency.toLowerCase()}. Hệ thống sẽ nhắc khi tới
+                  hạn.
                 </span>
               </div>
             )}
