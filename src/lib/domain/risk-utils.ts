@@ -1,6 +1,11 @@
 import { LOCKED_EDIT_STATUSES, RISK_FLOW, nextTransitions } from "./workflow";
 import { riskLevelFromScore, riskScore } from "./matrix";
-import { riskFormSchema, zodErrors, type FieldErrors, type Risk } from "./schema";
+import {
+  riskFormSchema,
+  zodErrors,
+  type FieldErrors,
+  type Risk,
+} from "./schema";
 import type { RiskLevelValue, RiskStatus } from "./enums";
 import { toInputDate } from "@/lib/format";
 import type { z } from "zod";
@@ -68,14 +73,16 @@ export function isReviewOverdue(r: Risk, today = new Date()): boolean {
 
 /** Chuỗi phục vụ tìm kiếm không dấu trên màn hình danh sách */
 export function riskSearchText(r: Risk, extra: string[] = []): string {
-  return [r.code, r.name, r.description, r.cause, ...r.tags, ...extra].join(" ");
+  return [r.code, r.name, r.description, r.cause, ...r.tags, ...extra].join(
+    " ",
+  );
 }
 
 /** Thứ tự mức độ, dùng khi sắp xếp theo mức thay vì theo điểm */
 export const RISK_LEVEL_ORDER: Record<RiskLevelValue, number> = {
-  "Thấp": 1,
+  Thấp: 1,
   "Trung bình": 2,
-  "Cao": 3,
+  Cao: 3,
   "Trọng yếu": 4,
 };
 
@@ -95,9 +102,9 @@ export interface RiskSummary {
 
 export function summarizeRisks(rows: Risk[]): RiskSummary {
   const byLevel: Record<RiskLevelValue, number> = {
-    "Thấp": 0,
+    Thấp: 0,
     "Trung bình": 0,
-    "Cao": 0,
+    Cao: 0,
     "Trọng yếu": 0,
   };
 
@@ -133,7 +140,7 @@ export function summarizeRisks(rows: Risk[]): RiskSummary {
 
 /** Giá trị khởi tạo cho form thêm mới */
 export function emptyRiskForm(
-  preset: Partial<RiskFormValue> = {}
+  preset: Partial<RiskFormValue> = {},
 ): RiskFormValue {
   return {
     name: "",
@@ -220,19 +227,22 @@ export function riskWarnings(v: RiskFormValue): string[] {
 
   if (requireTreatmentPlan(v)) {
     out.push(
-      `Mức rủi ro còn lại là ${residualLevelOf(v)}, theo quy định phải có kế hoạch khắc phục và phòng ngừa kèm theo.`
+      `Mức rủi ro còn lại là ${residualLevelOf(v)}, theo quy định phải có kế hoạch khắc phục và phòng ngừa kèm theo.`,
     );
   }
 
   if (v.isZeroTolerance && residualLevelOf(v) !== "Thấp") {
     out.push(
-      "Rủi ro không khoan nhượng nhưng mức còn lại chưa về Thấp, cần bổ sung kiểm soát."
+      "Rủi ro không khoan nhượng nhưng mức còn lại chưa về Thấp, cần bổ sung kiểm soát.",
     );
   }
 
-  if (residualScoreOf(v) === inherentScoreOf(v) && v.treatment === "Giảm thiểu") {
+  if (
+    residualScoreOf(v) === inherentScoreOf(v) &&
+    v.treatment === "Giảm thiểu"
+  ) {
     out.push(
-      "Phương án là Giảm thiểu nhưng điểm rủi ro còn lại bằng điểm cố hữu, kiểm tra lại đánh giá sau kiểm soát."
+      "Phương án là Giảm thiểu nhưng điểm rủi ro còn lại bằng điểm cố hữu, kiểm tra lại đánh giá sau kiểm soát.",
     );
   }
 
@@ -245,4 +255,103 @@ export function riskWarnings(v: RiskFormValue): string[] {
   }
 
   return out;
+}
+
+/* ==================================================================
+   Trạng thái đánh giá điểm rủi ro còn lại
+
+   Lô này KHÔNG tự tính điểm còn lại từ tập kiểm soát. Người dùng tự
+   chấm, hệ thống chỉ nhận diện và nhắc khi điểm đã cũ hoặc chưa chấm.
+   ================================================================== */
+
+interface RiskAssessmentInput {
+  id: string;
+  residualAssessedAt?: string;
+  controlsChangedAt?: string;
+  residualLikelihood?: number | null;
+  residualImpact?: number | null;
+}
+
+interface ControlCoverageInput {
+  riskIds?: string[];
+  status?: string;
+}
+
+/** Kiểm soát ở trạng thái chưa phê duyệt thì chưa coi là đang phủ rủi ro */
+const COVERAGE_EXCLUDED_STATUS = new Set(["Nháp", "Chờ duyệt"]);
+
+/** Rủi ro này có kiểm soát nào phủ chưa */
+export function hasControlCoverage(
+  risk: { id: string },
+  controls: ControlCoverageInput[],
+): boolean {
+  return controls.some(
+    (c) =>
+      Array.isArray(c.riskIds) &&
+      c.riskIds.includes(risk.id) &&
+      !COVERAGE_EXCLUDED_STATUS.has(c.status ?? ""),
+  );
+}
+
+/** Số kiểm soát đang phủ rủi ro này */
+export function controlCoverageCount(
+  risk: { id: string },
+  controls: ControlCoverageInput[],
+): number {
+  return controls.filter(
+    (c) =>
+      Array.isArray(c.riskIds) &&
+      c.riskIds.includes(risk.id) &&
+      !COVERAGE_EXCLUDED_STATUS.has(c.status ?? ""),
+  ).length;
+}
+
+/** Đã từng chấm điểm còn lại chưa */
+export function isResidualAssessed(risk: RiskAssessmentInput): boolean {
+  if (risk.residualAssessedAt && risk.residualAssessedAt.trim()) return true;
+  /* Dữ liệu cũ chưa có dấu vết, suy từ chính điểm đã chấm */
+  return !!risk.residualLikelihood && !!risk.residualImpact;
+}
+
+/**
+ * Điểm còn lại đã cũ so với tập kiểm soát.
+ * Tập kiểm soát đổi sau lần chấm cuối nghĩa là con số hiện tại
+ * không còn phản ánh thực tế.
+ */
+export function isResidualStale(risk: RiskAssessmentInput): boolean {
+  const assessed = (risk.residualAssessedAt ?? "").trim();
+  const changed = (risk.controlsChangedAt ?? "").trim();
+  if (!assessed || !changed) return false;
+  return changed > assessed;
+}
+
+/** Trạng thái tổng hợp của việc đánh giá điểm còn lại */
+export type ResidualState = "not-assessed" | "stale" | "current";
+
+export function residualStateOf(risk: RiskAssessmentInput): ResidualState {
+  if (!isResidualAssessed(risk)) return "not-assessed";
+  if (isResidualStale(risk)) return "stale";
+  return "current";
+}
+
+export function residualStateLabel(state: ResidualState): string {
+  switch (state) {
+    case "not-assessed":
+      return "Chưa đánh giá";
+    case "stale":
+      return "Điểm còn lại đã cũ";
+    default:
+      return "Đã đánh giá";
+  }
+}
+
+export function residualStateHint(state: ResidualState): string {
+  switch (state) {
+    case "not-assessed":
+      return "Chưa chấm điểm rủi ro còn lại, nên chưa biết kiểm soát đã làm giảm rủi ro tới mức nào";
+    case "stale":
+      return "Tập kiểm soát đã thay đổi sau lần chấm điểm gần nhất, cần đánh giá lại điểm còn lại";
+    default:
+      return "Điểm còn lại đã được chấm và vẫn khớp với tập kiểm soát hiện tại";
+  }
 }

@@ -136,6 +136,23 @@ export const riskSchema = baseEntity.extend({
   systemId: z.string().default(""),
   source: z.enum(RISK_SOURCES).default("Nội bộ"),
 
+  /* --- Dấu vết đánh giá điểm rủi ro còn lại --- */
+
+  /** Ngày chấm điểm còn lại gần nhất, rỗng nghĩa là chưa từng chấm */
+  residualAssessedAt: z.string().optional(),
+
+  /** Người chấm điểm còn lại gần nhất */
+  residualAssessedBy: z.string().optional(),
+
+  /** Luận cứ đánh giá, phục vụ kiểm toán nội bộ */
+  residualRationale: z.string().optional(),
+
+  /**
+   * Ngày tập kiểm soát của rủi ro này thay đổi gần nhất.
+   * Mới hơn residualAssessedAt nghĩa là điểm còn lại đã cũ.
+   */
+  controlsChangedAt: z.string().optional(),
+
   inherentLikelihood: score,
   inherentImpact: score,
   residualLikelihood: score,
@@ -221,6 +238,9 @@ export const controlSchema = baseEntity.extend({
   lastTestResult: z.enum(CONTROL_TEST_RESULTS).nullable().default(null),
   lastTestDate: z.string().default(""),
   evidenceRequirement: z.string().default(""),
+  designEffectiveness: z.string().optional(),
+  operationEffectiveness: z.string().optional(),
+  lastAssessedAt: z.string().optional(),
 });
 export type Control = z.infer<typeof controlSchema>;
 
@@ -266,6 +286,11 @@ export const controlTestSchema = baseEntity.extend({
   result: z.enum(CONTROL_TEST_RESULTS),
   finding: z.string().default(""),
   recommendation: z.string().default(""),
+  /* --- Kết quả kiểm tra tách theo hai chiều --- */
+
+  designResult: z.string().optional(),
+  operationResult: z.string().optional(),
+
   /** Bắt buộc sinh điểm yếu khi kết luận khác Hiệu quả */
   deficiencyId: z.string().default(""),
   evidenceNote: z.string().default(""),

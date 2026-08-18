@@ -153,3 +153,52 @@ export const OBJECTIVE_LEVELS = ["Công ty", "Khối", "Phòng ban"] as const;
 export function toOptions(values: readonly string[]) {
   return values.map((v) => ({ value: v, label: v }));
 }
+
+/* ==================================================================
+   Hiệu lực kiểm soát theo hai chiều
+   Design Effectiveness và Operation Effectiveness
+   ================================================================== */
+
+/** Ba mức kết luận, dùng cho cả hai chiều và cho hiệu quả chung */
+export const CONTROL_EFFECTIVENESS = [
+  "Hiệu quả",
+  "Hiệu quả một phần",
+  "Không hiệu quả",
+] as const;
+
+export type ControlEffectivenessValue = (typeof CONTROL_EFFECTIVENESS)[number];
+
+/**
+ * Giá trị hiển thị khi chưa có kết luận.
+ * KHÔNG đưa vào CONTROL_EFFECTIVENESS vì đây không phải một kết luận
+ * đánh giá, mà là trạng thái chưa đánh giá.
+ */
+export const CONTROL_EFFECTIVENESS_NOT_ASSESSED = "Chưa đánh giá" as const;
+
+/** Tuỳ chọn cho các bộ lọc trên sổ kiểm soát */
+export const CONTROL_EFFECTIVENESS_FILTER = [
+  ...CONTROL_EFFECTIVENESS,
+  CONTROL_EFFECTIVENESS_NOT_ASSESSED,
+] as const;
+
+/** Thứ tự sắp xếp từ tốt tới xấu */
+export const CONTROL_EFFECTIVENESS_ORDER: Record<string, number> = {
+  "Hiệu quả": 1,
+  "Hiệu quả một phần": 2,
+  "Không hiệu quả": 3,
+  "Chưa đánh giá": 4,
+};
+
+/* ==================================================================
+   Giai đoạn vòng đời rủi ro, dùng cho wizard và LifecycleStepper
+   ================================================================== */
+
+export const RISK_LIFECYCLE_STEPS = [
+  "Nhận diện",
+  "Đánh giá cố hữu",
+  "Gắn kiểm soát",
+  "Đánh giá còn lại",
+  "Ứng phó và theo dõi",
+] as const;
+
+export type RiskLifecycleStep = (typeof RISK_LIFECYCLE_STEPS)[number];

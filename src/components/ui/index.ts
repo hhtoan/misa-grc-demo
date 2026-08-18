@@ -19,3 +19,30 @@ export * from "./Pagination";
 export * from "./BulkActionBar";
 export * from "./TableToolbar";
 export * from "./FilterPanel";
+export { default as ScoreSelector } from "./ScoreSelector";
+export type {
+  ScoreSelectorProps,
+  ScoreSelectorCriterion,
+  ScoreSelectorLevel,
+  ScoreValue,
+} from "./ScoreSelector";
+
+export { default as LifecycleStepper } from "./LifecycleStepper";
+export type {
+  LifecycleStepperProps,
+  LifecycleStep,
+  StepState,
+} from "./LifecycleStepper";
+
+export { default as MissingInfoCell } from "./MissingInfoCell";
+export type {
+  MissingInfoCellProps,
+  MissingItem,
+  MissingTone,
+} from "./MissingInfoCell";
+
+export { default as LifecycleQuickFilter } from "./LifecycleQuickFilter";
+export type {
+  LifecycleQuickFilterProps,
+  QuickFilterItem,
+} from "./LifecycleQuickFilter";

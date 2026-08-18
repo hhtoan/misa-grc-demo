@@ -79,9 +79,16 @@ import type {
   Risk,
 } from "@/lib/domain/schema";
 import { IMPACT_LABELS, LIKELIHOOD_LABELS } from "@/lib/domain/matrix";
-import { formatDate, formatDateTime, formatMoney, formatNumber } from "@/lib/format";
+import {
+  formatDate,
+  formatDateTime,
+  formatMoney,
+  formatNumber,
+} from "@/lib/format";
 import { useSession } from "@/config/session";
 import { cn } from "@/lib/cn";
+
+import RiskLifecycleBar from "./RiskLifecycleBar";
 
 /* ================================================================== */
 /* Kiểu tab                                        */
@@ -109,7 +116,7 @@ export default function ChiTietRuiRoScreen({ code }: { code: string }) {
 
   const risk = useMemo(
     () => risks.find((r) => r.code === code || r.id === code),
-    [risks, code]
+    [risks, code],
   );
 
   if (!risk) {
@@ -165,29 +172,30 @@ function ChiTietContent({ risk }: { risk: Risk }) {
 
   const linkedControls = useMemo(
     () => controls.filter((c) => c.riskIds.includes(risk.id)),
-    [controls, risk.id]
+    [controls, risk.id],
   );
 
   const linkedDeficiencies = useMemo(
     () => deficiencies.filter((d) => d.riskId === risk.id),
-    [deficiencies, risk.id]
+    [deficiencies, risk.id],
   );
 
   const linkedKppns = useMemo(() => {
     const defIds = new Set(linkedDeficiencies.map((d) => d.id));
     return kppns.filter(
-      (k) => k.riskId === risk.id || (k.deficiencyId && defIds.has(k.deficiencyId))
+      (k) =>
+        k.riskId === risk.id || (k.deficiencyId && defIds.has(k.deficiencyId)),
     );
   }, [kppns, risk.id, linkedDeficiencies]);
 
   const linkedEvents = useMemo(
     () => events.filter((e) => e.relatedRiskIds.includes(risk.id)),
-    [events, risk.id]
+    [events, risk.id],
   );
 
   const linkedKris = useMemo(
     () => kris.filter((k) => k.riskId === risk.id),
-    [kris, risk.id]
+    [kris, risk.id],
   );
 
   /* --------------------------- Hành động ------------------------ */
@@ -196,15 +204,16 @@ function ChiTietContent({ risk }: { risk: Risk }) {
   const transitions = riskNextTransitions(risk.status);
 
   const activeKppns = linkedKppns.filter(
-    (k) => k.status !== "Huỷ" && k.status !== "Hoàn thành"
+    (k) => k.status !== "Huỷ" && k.status !== "Hoàn thành",
   );
-  const needPlanWarning = requireTreatmentPlan(risk) && activeKppns.length === 0;
+  const needPlanWarning =
+    requireTreatmentPlan(risk) && activeKppns.length === 0;
 
   function goEdit() {
     if (!editable) {
       toast.warning(
         "Không sửa được",
-        `Rủi ro đang ở trạng thái ${risk.status} nên bị khoá chỉnh sửa.`
+        `Rủi ro đang ở trạng thái ${risk.status} nên bị khoá chỉnh sửa.`,
       );
       return;
     }
@@ -240,7 +249,7 @@ function ChiTietContent({ risk }: { risk: Risk }) {
         estimatedLoss: risk.estimatedLoss,
         tags: [...risk.tags],
       },
-      user.name
+      user.name,
     );
     toast.success("Đã nhân bản", `Bản sao ${created.code} ở trạng thái Nháp.`);
     router.push(`/rui-ro/so-dang-ky/${created.code}`);
@@ -303,6 +312,14 @@ function ChiTietContent({ risk }: { risk: Risk }) {
 
       <PageBody className="pt-3">
         <div className="flex flex-col gap-4">
+          <RiskLifecycleBar
+            risk={risk}
+            assessorName={
+              risk.residualAssessedBy
+                ? lk.employeeName(risk.residualAssessedBy, "")
+                : undefined
+            }
+          />
           {/* ================== Dải cảnh báo ================== */}
           {needPlanWarning && (
             <AlertBar
@@ -357,7 +374,9 @@ function ChiTietContent({ risk }: { risk: Risk }) {
               <p
                 className={cn(
                   "text-[24px] leading-8 font-semibold",
-                  reductionPercentOf(risk) > 0 ? "text-success" : "text-text-hint"
+                  reductionPercentOf(risk) > 0
+                    ? "text-success"
+                    : "text-text-hint",
                 )}
               >
                 {reductionPercentOf(risk)}%
@@ -463,8 +482,8 @@ function ChiTietContent({ risk }: { risk: Risk }) {
         title="Xoá rủi ro"
         message={
           <>
-            Bạn có chắc muốn xoá <b>{risk.code}</b>? Hành động này không thể hoàn
-            tác.
+            Bạn có chắc muốn xoá <b>{risk.code}</b>? Hành động này không thể
+            hoàn tác.
           </>
         }
         confirmText="Xoá"
@@ -505,7 +524,7 @@ function AlertBar({
     <div
       className={cn(
         "flex flex-wrap items-center gap-3 rounded-card border px-3 py-2.5",
-        style
+        style,
       )}
     >
       <Icon size={18} className="shrink-0" />
@@ -561,7 +580,7 @@ function TabTongQuan({ risk, lk }: { risk: Risk; lk: Lookups }) {
             {risk.reviewDate ? (
               <span
                 className={cn(
-                  isReviewOverdue(risk) && "font-medium text-danger"
+                  isReviewOverdue(risk) && "font-medium text-danger",
                 )}
               >
                 {formatDate(risk.reviewDate)}
@@ -599,9 +618,7 @@ function TabTongQuan({ risk, lk }: { risk: Risk; lk: Lookups }) {
         note="Đồng bộ một chiều từ AMIS Mục tiêu, chỉ đọc trong GRC"
       >
         {objectives.length === 0 ? (
-          <p className="text-[13px] text-text-hint">
-            Chưa gắn mục tiêu nào.
-          </p>
+          <p className="text-[13px] text-text-hint">Chưa gắn mục tiêu nào.</p>
         ) : (
           <div className="flex flex-col gap-1.5">
             {objectives.map((o) => (
@@ -833,7 +850,7 @@ function TabKiemSoat({ rows, lk }: { rows: Control[]; lk: Lookups }) {
           {
             label: "Kết quả chưa đạt",
             value: rows.filter(
-              (c) => c.lastTestResult && c.lastTestResult !== "Hiệu quả"
+              (c) => c.lastTestResult && c.lastTestResult !== "Hiệu quả",
             ).length,
             tone: "danger",
           },
@@ -911,7 +928,7 @@ function TabKppn({
             <span
               className={cn(
                 "block h-full rounded-full",
-                k.progress >= 100 ? "bg-success" : "bg-brand"
+                k.progress >= 100 ? "bg-success" : "bg-brand",
               )}
               style={{ width: `${k.progress}%` }}
             />
@@ -927,9 +944,7 @@ function TabKppn({
       header: "Hạn hoàn thành",
       width: 130,
       render: (k) => (
-        <span
-          className={cn(isKppnOverdue(k) && "font-medium text-danger")}
-        >
+        <span className={cn(isKppnOverdue(k) && "font-medium text-danger")}>
           {formatDate(k.dueDate)}
         </span>
       ),
@@ -948,7 +963,9 @@ function TabKppn({
       render: (k) =>
         k.externalUrl ? (
           <RowActions>
-            <Tooltip content={`Mở ${k.externalTaskCode} trên ${k.executionSystem}`}>
+            <Tooltip
+              content={`Mở ${k.externalTaskCode} trên ${k.executionSystem}`}
+            >
               <IconButton
                 label="Mở hệ thống nguồn"
                 onClick={() => window.open(k.externalUrl, "_blank")}
@@ -1140,7 +1157,7 @@ function TabSuKien({ rows, lk }: { rows: GrcEvent[]; lk: Lookups }) {
           {
             label: "Đang xử lý",
             value: rows.filter(
-              (e) => e.status !== "Đã đóng" && e.status !== "Huỷ ghi nhận"
+              (e) => e.status !== "Đã đóng" && e.status !== "Huỷ ghi nhận",
             ).length,
             tone: "brand",
           },
@@ -1335,9 +1352,10 @@ function TabLichSu({
         date: e.occurredDate,
         title: `Xảy ra sự kiện ${e.code}`,
         description: `${e.name} - mức ${e.severity}`,
-        tone: e.severity === "Trọng yếu" || e.severity === "Cao"
-          ? "danger"
-          : "warning",
+        tone:
+          e.severity === "Trọng yếu" || e.severity === "Cao"
+            ? "danger"
+            : "warning",
         icon: <IconBolt size={14} />,
       });
     });
@@ -1386,7 +1404,7 @@ function TabLichSu({
               <span
                 className={cn(
                   "flex h-6 w-6 shrink-0 items-center justify-center rounded-full",
-                  toneClass[it.tone]
+                  toneClass[it.tone],
                 )}
               >
                 {it.icon}
@@ -1443,7 +1461,7 @@ function SummaryLine({
           key={it.label}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-ctrl px-2.5 py-1 text-[12px] font-medium",
-            it.tone ? style[it.tone] : "bg-surface-alt text-text-secondary"
+            it.tone ? style[it.tone] : "bg-surface-alt text-text-secondary",
           )}
         >
           {it.label}
@@ -1504,7 +1522,7 @@ function TransitionModal({
     if (selected.to === "Đã đóng" && blockClose) {
       onWarn(
         "Rủi ro được đóng khi chưa có KPPN",
-        `Mức rủi ro còn lại là ${residualLevelOf(risk)}. Hãy rà soát lại kế hoạch khắc phục và phòng ngừa.`
+        `Mức rủi ro còn lại là ${residualLevelOf(risk)}. Hãy rà soát lại kế hoạch khắc phục và phòng ngừa.`,
       );
     }
 
@@ -1515,7 +1533,7 @@ function TransitionModal({
 
     onDone(
       `${risk.code}: ${selected.label}`,
-      `Trạng thái chuyển từ ${risk.status} sang ${selected.to}.`
+      `Trạng thái chuyển từ ${risk.status} sang ${selected.to}.`,
     );
   }
 

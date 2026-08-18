@@ -6,5 +6,5 @@ export default async function Page({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <RiskFormScreen mode="edit" code={decodeURIComponent(id)} />;
+  return <RiskFormScreen code={id} />;
 }

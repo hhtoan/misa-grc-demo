@@ -12,7 +12,7 @@ import {
   IconEye,
   IconPlus,
   IconShieldExclamation,
-  IconStar,          // ← thêm dòng này
+  IconStar, // ← thêm dòng này
   IconTrash,
 } from "@tabler/icons-react";
 import {
@@ -43,10 +43,12 @@ import {
   RowActions,
   useToast,
   type Column,
+  LifecycleQuickFilter,
+  MissingInfoCell,
 } from "@/components/ui";
 import { PageContainer, PageHeader } from "@/components/layout";
 import { LEVEL_TONE } from "@/components/domain";
-import { riskRepo, useCollection } from "@/lib/db";
+import { controlRepo, riskRepo, useCollection } from "@/lib/db";
 import { useLookups } from "@/lib/domain/lookups";
 import {
   RISK_LEVEL_ORDER,
@@ -59,13 +61,23 @@ import {
   riskSearchText,
   summarizeRisks,
 } from "@/lib/domain/risk-utils";
-import { RISK_SOURCES, RISK_STATUSES, RISK_TREATMENTS } from "@/lib/domain/enums";
+import {
+  RISK_SOURCES,
+  RISK_STATUSES,
+  RISK_TREATMENTS,
+} from "@/lib/domain/enums";
 import type { Risk } from "@/lib/domain/schema";
 import type { RiskStatus } from "@/lib/domain/enums";
 import { formatDate, formatMoney } from "@/lib/format";
 import { useTableState } from "@/lib/table";
 import { useSession } from "@/config/session";
 import { cn } from "@/lib/cn";
+import {
+  RISK_QUICK_FILTERS,
+  matchRiskQuickFilter,
+  riskMissingInfo,
+} from "@/lib/domain/risk-lifecycle";
+import { isResidualStale } from "@/lib/domain/risk-utils";
 
 /* ================================================================== */
 /* Hằng số bộ lọc                                        */
@@ -73,7 +85,7 @@ import { cn } from "@/lib/cn";
 
 const STATUS_OPTIONS = RISK_STATUSES.map((s) => ({ value: s, label: s }));
 const LEVEL_OPTIONS = (["Thấp", "Trung bình", "Cao", "Trọng yếu"] as const).map(
-  (s) => ({ value: s, label: s })
+  (s) => ({ value: s, label: s }),
 );
 const TREATMENT_OPTIONS = RISK_TREATMENTS.map((s) => ({ value: s, label: s }));
 const SOURCE_OPTIONS = RISK_SOURCES.map((s) => ({ value: s, label: s }));
@@ -93,12 +105,38 @@ export default function SoDangKyRuiRoScreen() {
   const { user, hasRole } = useSession();
 
   const risks = useCollection(riskRepo);
+  const controls = useCollection(controlRepo) as unknown as {
+    riskIds?: string[];
+    status?: string;
+  }[];
+
+  /**
+   * Số kiểm soát ĐÃ PHÊ DUYỆT đang phủ từng rủi ro.
+   * Kiểm soát Nháp hoặc Chờ duyệt không tính, vì chưa phê duyệt thì
+   * chưa vận hành nên chưa bảo vệ được gì trên thực tế.
+   */
+  const controlCountOf = useMemo(() => {
+    const map = new Map<string, number>();
+    const notActive = new Set(["Nháp", "Chờ duyệt"]);
+
+    controls.forEach((c) => {
+      if (notActive.has(c.status ?? "")) return;
+      (c.riskIds ?? []).forEach((rid) => {
+        map.set(rid, (map.get(rid) ?? 0) + 1);
+      });
+    });
+
+    return map;
+  }, [controls]);
+
+  const controlCount = (id: string) => controlCountOf.get(id) ?? 0;
+
   const lk = useLookups();
 
   /* --------------------- Nhận diện nhân sự đăng nhập -------------- */
   const currentEmployee = useMemo(
     () => lk.employees.find((e) => e.email === user.email),
-    [lk.employees, user.email]
+    [lk.employees, user.email],
   );
 
   /* ---------------------------- Bộ lọc ---------------------------- */
@@ -119,6 +157,9 @@ export default function SoDangKyRuiRoScreen() {
   const [deleting, setDeleting] = useState<Risk | null>(null);
   const [bulkDelete, setBulkDelete] = useState(false);
   const [transiting, setTransiting] = useState<Risk | null>(null);
+
+  /** Lọc nhanh theo giai đoạn vòng đời, hoạt động độc lập với tab */
+  const [lifecycle, setLifecycle] = useState("all");
 
   const canEdit = hasRole("admin", "qtrr", "owner");
 
@@ -148,10 +189,10 @@ export default function SoDangKyRuiRoScreen() {
       key: risks.filter((r) => r.isKeyRisk || r.isZeroTolerance).length,
       review: risks.filter((r) => isReviewOverdue(r)).length,
       closed: risks.filter(
-        (r) => r.status === "Đã đóng" || r.status === "Từ chối"
+        (r) => r.status === "Đã đóng" || r.status === "Từ chối",
       ).length,
     }),
-    [risks, currentEmployee]
+    [risks, currentEmployee],
   );
 
   /* --------------------------- Table state ------------------------ */
@@ -166,7 +207,8 @@ export default function SoDangKyRuiRoScreen() {
     filter: (r) => {
       if (!matchTab(r)) return false;
       if (statuses.length > 0 && !statuses.includes(r.status)) return false;
-      if (levels.length > 0 && !levels.includes(residualLevelOf(r))) return false;
+      if (levels.length > 0 && !levels.includes(residualLevelOf(r)))
+        return false;
       if (unitId && r.unitId !== unitId) return false;
       if (ownerId && r.ownerId !== ownerId) return false;
       if (categoryId && r.categoryId !== categoryId) return false;
@@ -192,7 +234,9 @@ export default function SoDangKyRuiRoScreen() {
         case "inherent":
           return inherentScoreOf(r);
         case "residual":
-          return RISK_LEVEL_ORDER[residualLevelOf(r)] * 100 + residualScoreOf(r);
+          return (
+            RISK_LEVEL_ORDER[residualLevelOf(r)] * 100 + residualScoreOf(r)
+          );
         case "treatment":
           return r.treatment;
         case "loss":
@@ -224,6 +268,35 @@ export default function SoDangKyRuiRoScreen() {
     ],
   });
 
+  /**
+   * Số đếm cho từng chip quick filter.
+   * Đếm trên tập đã áp bộ lọc đơn vị nhưng CHƯA áp từ khoá tìm kiếm:
+   * nếu đếm toàn hệ thống thì bấm chip số lớn lại thấy bảng trống,
+   * còn nếu đếm sau tìm kiếm thì số nhảy liên tục khi đang gõ.
+   */
+  const lifecycleCounts = useMemo(() => {
+    const base = risks.filter((r) => {
+      if (unitId && r.unitId !== unitId) return false;
+      return true;
+    });
+
+    const out: Record<string, number> = {};
+    RISK_QUICK_FILTERS.forEach((f) => {
+      out[f.key] = base.filter((r) =>
+        matchRiskQuickFilter(f.key, r, controlCount(r.id)),
+      ).length;
+    });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [risks, unitId, controlCountOf]);
+
+  const quickFilterItems = RISK_QUICK_FILTERS.map((f) => ({
+    key: f.key,
+    label: f.label,
+    hint: f.hint,
+    count: lifecycleCounts[f.key] ?? 0,
+  }));
+
   const summary = useMemo(() => summarizeRisks(t.rows), [t.rows]);
 
   const filterCount =
@@ -251,10 +324,10 @@ export default function SoDangKyRuiRoScreen() {
     setOnlyReviewOverdue(false);
   }
 
-    /** Bấm vào thẻ mức độ để bật/tắt nhanh bộ lọc theo mức */
+  /** Bấm vào thẻ mức độ để bật/tắt nhanh bộ lọc theo mức */
   function toggleLevel(level: string) {
     setLevels((prev) =>
-      prev.includes(level) ? prev.filter((l) => l !== level) : [...prev, level]
+      prev.includes(level) ? prev.filter((l) => l !== level) : [...prev, level],
     );
   }
 
@@ -268,7 +341,7 @@ export default function SoDangKyRuiRoScreen() {
     if (!isRiskEditable(r.status)) {
       toast.warning(
         "Không sửa được",
-        `Rủi ro đang ở trạng thái ${r.status} nên bị khoá chỉnh sửa.`
+        `Rủi ro đang ở trạng thái ${r.status} nên bị khoá chỉnh sửa.`,
       );
       return;
     }
@@ -304,7 +377,7 @@ export default function SoDangKyRuiRoScreen() {
         estimatedLoss: r.estimatedLoss,
         tags: [...r.tags],
       },
-      user.name
+      user.name,
     );
     toast.success("Đã nhân bản", `Bản sao ${created.code} ở trạng thái Nháp.`);
   }
@@ -313,7 +386,7 @@ export default function SoDangKyRuiRoScreen() {
     if (!DELETABLE_STATUSES.has(r.status)) {
       toast.error(
         "Không xoá được",
-        `Chỉ xoá được rủi ro ở trạng thái Nháp hoặc Từ chối. ${r.code} đang ở trạng thái ${r.status}.`
+        `Chỉ xoá được rủi ro ở trạng thái Nháp hoặc Từ chối. ${r.code} đang ở trạng thái ${r.status}.`,
       );
       return;
     }
@@ -326,7 +399,7 @@ export default function SoDangKyRuiRoScreen() {
     if (list.length === 0) {
       toast.warning(
         "Không chuyển được",
-        `${r.status} là trạng thái cuối của luồng.`
+        `${r.status} là trạng thái cuối của luồng.`,
       );
       return;
     }
@@ -338,7 +411,7 @@ export default function SoDangKyRuiRoScreen() {
     riskRepo.update(r.id, { status: list[0].to });
     toast.success(
       `${r.code}: ${list[0].label}`,
-      `Trạng thái chuyển từ ${r.status} sang ${list[0].to}.`
+      `Trạng thái chuyển từ ${r.status} sang ${list[0].to}.`,
     );
   }
 
@@ -361,7 +434,7 @@ export default function SoDangKyRuiRoScreen() {
     if (moved === 0) {
       toast.warning(
         "Không có bản ghi nào được chuyển",
-        "Các bản ghi đã chọn đang ở trạng thái cuối hoặc cần nhập lý do."
+        "Các bản ghi đã chọn đang ở trạng thái cuối hoặc cần nhập lý do.",
       );
       return;
     }
@@ -369,7 +442,7 @@ export default function SoDangKyRuiRoScreen() {
       `Đã chuyển trạng thái ${moved} rủi ro`,
       skipped > 0
         ? `${skipped} bản ghi bị bỏ qua do ở trạng thái cuối hoặc cần nhập lý do.`
-        : undefined
+        : undefined,
     );
   }
 
@@ -444,9 +517,31 @@ export default function SoDangKyRuiRoScreen() {
       header: "Còn lại",
       width: 150,
       sortable: true,
-      render: (r) => (
-        <RiskBadge level={residualLevelOf(r)} score={residualScoreOf(r)} />
-      ),
+      render: (r) => {
+        const assessed = !!r.residualLikelihood && !!r.residualImpact;
+
+        if (!assessed)
+          return (
+            <Tooltip content="Chưa chấm điểm rủi ro còn lại, nên chưa biết kiểm soát đã giảm rủi ro tới mức nào">
+              <Badge tone="neutral" size="sm" dot>
+                Chưa đánh giá
+              </Badge>
+            </Tooltip>
+          );
+
+        return (
+          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <RiskBadge level={residualLevelOf(r)} score={residualScoreOf(r)} />
+            {isResidualStale(r) && (
+              <Tooltip content="Tập kiểm soát đã thay đổi sau lần chấm điểm gần nhất, cần đánh giá lại">
+                <Badge tone="warning" size="sm">
+                  Đã cũ
+                </Badge>
+              </Tooltip>
+            )}
+          </span>
+        );
+      },
     },
     {
       key: "treatment",
@@ -476,7 +571,7 @@ export default function SoDangKyRuiRoScreen() {
           <span
             className={cn(
               "inline-flex items-center gap-1",
-              overdue && "font-medium text-danger"
+              overdue && "font-medium text-danger",
             )}
           >
             {overdue && <IconClockExclamation size={14} />}
@@ -534,6 +629,17 @@ export default function SoDangKyRuiRoScreen() {
         </RowActions>
       ),
     },
+    {
+      key: "missing",
+      header: "Hồ sơ",
+      minWidth: 220,
+      render: (r) => (
+        <MissingInfoCell
+          items={riskMissingInfo(r, controlCount(r.id))}
+          maxVisible={2}
+        />
+      ),
+    },
   ];
 
   /* ------------------------------ Render -------------------------- */
@@ -550,7 +656,7 @@ export default function SoDangKyRuiRoScreen() {
               onClick={() =>
                 toast.info(
                   "Đang xuất khẩu",
-                  `Chuẩn bị tệp Excel cho ${t.total} bản ghi (giả lập).`
+                  `Chuẩn bị tệp Excel cho ${t.total} bản ghi (giả lập).`,
                 )
               }
             >
@@ -596,7 +702,7 @@ export default function SoDangKyRuiRoScreen() {
             </div>
 
             {/* --------------------- Thẻ thống kê --------------------- */}
-                        {/* --------------------- Thẻ thống kê --------------------- */}
+            {/* --------------------- Thẻ thống kê --------------------- */}
             <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border-light px-3 py-2.5">
               <StatChip
                 icon={<IconAlertTriangle size={15} />}
@@ -644,9 +750,7 @@ export default function SoDangKyRuiRoScreen() {
               />
 
               <span className="mx-0.5 h-5 w-px bg-border-light" />
-              <span className="text-[12px] text-text-secondary">
-                Đánh dấu:
-              </span>
+              <span className="text-[12px] text-text-secondary">Đánh dấu:</span>
 
               <StatChip
                 icon={<IconStar size={15} />}
@@ -684,6 +788,12 @@ export default function SoDangKyRuiRoScreen() {
                 VNĐ
               </span>
             </div>
+
+            <LifecycleQuickFilter
+              items={quickFilterItems}
+              value={lifecycle}
+              onChange={setLifecycle}
+            />
 
             {/* ----------------------- Toolbar ------------------------ */}
             <TableToolbar
@@ -908,7 +1018,7 @@ export default function SoDangKyRuiRoScreen() {
           if (ids.length === 0) {
             toast.error(
               "Không xoá được bản ghi nào",
-              "Chỉ xoá được rủi ro ở trạng thái Nháp hoặc Từ chối."
+              "Chỉ xoá được rủi ro ở trạng thái Nháp hoặc Từ chối.",
             );
             return;
           }
@@ -916,7 +1026,7 @@ export default function SoDangKyRuiRoScreen() {
             `Đã xoá ${ids.length} rủi ro`,
             skipped > 0
               ? `${skipped} bản ghi bị bỏ qua vì đã đi vào theo dõi.`
-              : undefined
+              : undefined,
           );
         }}
         tone="danger"
@@ -982,7 +1092,7 @@ function StatChip({
   const base = cn(
     "inline-flex items-center gap-1.5 rounded-ctrl px-2.5 py-1 text-[12px] font-medium transition-all",
     style[tone],
-    value === 0 && !active && "opacity-55"
+    value === 0 && !active && "opacity-55",
   );
 
   if (!onClick) {
@@ -1002,14 +1112,13 @@ function StatChip({
         base,
         "cursor-pointer hover:brightness-95",
         active && "opacity-100 ring-2 ring-offset-1",
-        active && ring[tone]
+        active && ring[tone],
       )}
     >
       {content}
     </button>
   );
 }
-
 
 /* ================================================================== */
 /* Hộp thoại chuyển trạng thái                                        */
@@ -1053,7 +1162,7 @@ function TransitionModal({
     });
     onDone(
       `${risk.code}: ${selected.label}`,
-      `Trạng thái chuyển từ ${risk.status} sang ${selected.to}.`
+      `Trạng thái chuyển từ ${risk.status} sang ${selected.to}.`,
     );
   }
 
@@ -1138,8 +1247,8 @@ function TransitionModal({
               />
 
               <div className="rounded-ctrl bg-lv-info-bg p-2.5 text-[12px] leading-4 text-lv-info-text">
-                Mức rủi ro còn lại hiện tại là{" "}
-                <b>{residualLevelOf(risk)}</b> (điểm {residualScoreOf(risk)}).
+                Mức rủi ro còn lại hiện tại là <b>{residualLevelOf(risk)}</b>{" "}
+                (điểm {residualScoreOf(risk)}).
                 {residualLevelOf(risk) === "Cao" ||
                 residualLevelOf(risk) === "Trọng yếu"
                   ? " Theo quy định, rủi ro mức này phải có kế hoạch khắc phục và phòng ngừa trước khi đóng."
