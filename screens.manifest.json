@@ -1,0 +1,424 @@
+{
+  "project": "MISA GRC Demo",
+  "description": "Bản demo giao diện hệ thống Quản trị rủi ro, Kiểm soát nội bộ, Khắc phục phòng ngừa và Sự kiện rủi ro",
+  "version": "1.0.0",
+  "screenCount": 30,
+  "roles": [
+    {
+      "key": "admin",
+      "name": "Quản trị hệ thống",
+      "scope": "all",
+      "note": "Toàn quyền, kể cả danh mục dùng chung"
+    },
+    {
+      "key": "qtrr",
+      "name": "Ban Quản trị rủi ro",
+      "scope": "all",
+      "note": "Toàn hệ thống, phê duyệt và xác minh, không sửa danh mục"
+    },
+    {
+      "key": "auditor",
+      "name": "Kiểm toán nội bộ",
+      "scope": "all",
+      "note": "Chỉ đọc toàn hệ thống, có góc nhìn chất lượng hồ sơ riêng"
+    },
+    {
+      "key": "owner",
+      "name": "Chủ sở hữu rủi ro",
+      "scope": "unit",
+      "note": "Phạm vi đơn vị phụ trách"
+    },
+    {
+      "key": "staff",
+      "name": "Cán bộ nhân viên",
+      "scope": "self",
+      "note": "Chỉ bản ghi cá nhân sở hữu, phụ trách hoặc báo cáo"
+    }
+  ],
+  "modules": [
+    { "key": "chung", "name": "Chung", "basePath": "/" },
+    { "key": "rui-ro", "name": "Quản trị rủi ro", "basePath": "/rui-ro" },
+    {
+      "key": "kiem-soat",
+      "name": "Kiểm soát nội bộ",
+      "basePath": "/kiem-soat"
+    },
+    {
+      "key": "khac-phuc",
+      "name": "Khắc phục và phòng ngừa",
+      "basePath": "/khac-phuc"
+    },
+    { "key": "su-kien", "name": "Sự kiện rủi ro", "basePath": "/su-kien" }
+  ],
+  "screens": [
+    {
+      "id": "trang-chu",
+      "module": "chung",
+      "name": "Trang chủ",
+      "type": "dashboard",
+      "routes": ["/"],
+      "screenDir": "src/screens/TrangChu",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "description": "Bảng tin tổng hợp đổi nội dung theo vai trò, gồm 4 thẻ phân hệ, việc cần xử lý cá nhân và 2 biểu đồ mini",
+      "features": [
+        "Phạm vi dữ liệu 3 mức: toàn hệ thống, đơn vị, cá nhân",
+        "Khối Góc nhìn kiểm toán riêng cho vai trò auditor",
+        "Việc cần xử lý luôn theo cá nhân, không theo phạm vi"
+      ]
+    },
+    {
+      "id": "viec-can-xu-ly",
+      "module": "chung",
+      "name": "Việc cần xử lý",
+      "type": "list",
+      "routes": ["/viec-can-xu-ly"],
+      "screenDir": "src/screens/ViecCanXuLy",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "description": "Hộp thư việc cá nhân gộp từ cả 4 phân hệ, sinh lại từ dữ liệu mỗi lần render",
+      "features": [
+        "22 loại việc sinh tự động",
+        "4 mức khẩn: quá hạn, làm ngay, sắp hạn, theo dõi",
+        "Thao tác nhanh trên dòng: giao việc, cập nhật tiến độ, lập KPPN",
+        "2 chế độ xem: danh sách và nhóm theo phân hệ"
+      ]
+    },
+    {
+      "id": "quan-tri-danh-muc",
+      "module": "chung",
+      "name": "Quản trị danh mục dùng chung",
+      "type": "admin",
+      "routes": ["/quan-tri/danh-muc"],
+      "screenDir": "src/screens/QuanTri/DanhMuc",
+      "roles": ["admin", "qtrr", "auditor"],
+      "editRoles": ["admin"],
+      "description": "Màn hình 6 tab quản lý dữ liệu nền được cả 4 phân hệ tham chiếu",
+      "features": [
+        "Tab Đơn vị: cây tổ chức, đếm ngược tham chiếu, chặn xoá",
+        "Tab Nhân sự: email là khoá nối với tài khoản, cảnh báo việc chưa bàn giao",
+        "Tab Nhóm rủi ro và Nhóm sự kiện dùng chung repo, tự dò cách phân loại",
+        "Tab Ma trận rủi ro: lưới 5x5, cấu hình nhãn và ngưỡng, xem trước ảnh hưởng",
+        "Tab Kết nối hệ thống: bật tắt AMIS Công việc và JIRA, nhật ký phiên"
+      ]
+    },
+
+    {
+      "id": "rui-ro-so-dang-ky",
+      "module": "rui-ro",
+      "name": "Sổ đăng ký rủi ro",
+      "type": "list",
+      "routes": ["/rui-ro/so-dang-ky"],
+      "screenDir": "src/screens/RuiRo/SoDangKy",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "editRoles": ["admin", "qtrr", "owner"],
+      "description": "Danh sách toàn bộ rủi ro với bộ lọc nâng cao, thẻ thống kê và thao tác hàng loạt"
+    },
+    {
+      "id": "rui-ro-form",
+      "module": "rui-ro",
+      "name": "Thêm và sửa rủi ro",
+      "type": "form",
+      "routes": ["/rui-ro/so-dang-ky/them-moi", "/rui-ro/so-dang-ky/[id]/sua"],
+      "screenDir": "src/screens/RuiRo/RiskForm",
+      "roles": ["admin", "qtrr", "owner"],
+      "description": "Form ghi nhận rủi ro kèm đánh giá cố hữu, kiểm soát hiện có và mức còn lại"
+    },
+    {
+      "id": "rui-ro-chi-tiet",
+      "module": "rui-ro",
+      "name": "Chi tiết rủi ro",
+      "type": "detail",
+      "routes": ["/rui-ro/so-dang-ky/[id]"],
+      "screenDir": "src/screens/RuiRo/ChiTiet",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "description": "Trang chi tiết nhiều tab, liên kết sang kiểm soát, sự kiện và hành động khắc phục"
+    },
+    {
+      "id": "rui-ro-ma-tran",
+      "module": "rui-ro",
+      "name": "Ma trận rủi ro",
+      "type": "report",
+      "routes": ["/rui-ro/ma-tran"],
+      "screenDir": "src/screens/RuiRo/MaTran",
+      "roles": ["admin", "qtrr", "auditor", "owner"],
+      "description": "Lưới 5x5 xếp rủi ro theo khả năng và tác động, đổi được giữa mức cố hữu và mức còn lại"
+    },
+    {
+      "id": "rui-ro-danh-gia",
+      "module": "rui-ro",
+      "name": "Đánh giá rủi ro",
+      "type": "list",
+      "routes": ["/rui-ro/danh-gia"],
+      "screenDir": "src/screens/RuiRo/DanhGia",
+      "roles": ["admin", "qtrr", "owner"],
+      "description": "Quản lý các kỳ đánh giá lại rủi ro và lịch sử thay đổi mức độ"
+    },
+    {
+      "id": "rui-ro-cua-toi",
+      "module": "rui-ro",
+      "name": "Rủi ro của tôi",
+      "type": "list",
+      "routes": ["/rui-ro/cua-toi"],
+      "screenDir": "src/screens/RuiRo/CuaToi",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "description": "Rủi ro do tài khoản đang đăng nhập làm chủ sở hữu, kèm việc cần bổ sung"
+    },
+    {
+      "id": "rui-ro-kri",
+      "module": "rui-ro",
+      "name": "Chỉ số rủi ro chính KRI",
+      "type": "list",
+      "routes": ["/rui-ro/kri"],
+      "screenDir": "src/screens/RuiRo/KRI",
+      "roles": ["admin", "qtrr", "auditor", "owner"],
+      "description": "Theo dõi chỉ số cảnh báo sớm, ngưỡng an toàn và trạng thái vượt ngưỡng"
+    },
+    {
+      "id": "rui-ro-khau-vi",
+      "module": "rui-ro",
+      "name": "Khẩu vị rủi ro",
+      "type": "config",
+      "routes": ["/rui-ro/khau-vi"],
+      "screenDir": "src/screens/RuiRo/KhauVi",
+      "roles": ["admin", "qtrr", "auditor"],
+      "editRoles": ["admin", "qtrr"],
+      "description": "Tuyên bố khẩu vị rủi ro và danh mục rủi ro không khẩu vị"
+    },
+    {
+      "id": "rui-ro-bao-cao",
+      "module": "rui-ro",
+      "name": "Báo cáo rủi ro",
+      "type": "report",
+      "routes": ["/rui-ro/bao-cao"],
+      "screenDir": "src/screens/RuiRo/BaoCao",
+      "roles": ["admin", "qtrr", "auditor", "owner"],
+      "description": "Báo cáo tổng hợp rủi ro theo đơn vị, nhóm và mức độ"
+    },
+
+    {
+      "id": "kiem-soat-so-dang-ky",
+      "module": "kiem-soat",
+      "name": "Sổ đăng ký kiểm soát",
+      "type": "list",
+      "routes": ["/kiem-soat/so-dang-ky"],
+      "screenDir": "src/screens/KiemSoat/SoDangKy",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "editRoles": ["admin", "qtrr", "owner"],
+      "description": "Danh sách kiểm soát kèm loại, tần suất, kết quả kiểm tra gần nhất"
+    },
+    {
+      "id": "kiem-soat-form",
+      "module": "kiem-soat",
+      "name": "Thêm và sửa kiểm soát",
+      "type": "form",
+      "routes": [
+        "/kiem-soat/so-dang-ky/them-moi",
+        "/kiem-soat/so-dang-ky/[id]/sua"
+      ],
+      "screenDir": "src/screens/KiemSoat/ControlForm",
+      "roles": ["admin", "qtrr", "owner"],
+      "description": "Form thiết kế kiểm soát và gắn với các rủi ro được phủ"
+    },
+    {
+      "id": "kiem-soat-chi-tiet",
+      "module": "kiem-soat",
+      "name": "Chi tiết kiểm soát",
+      "type": "detail",
+      "routes": ["/kiem-soat/so-dang-ky/[id]"],
+      "screenDir": "src/screens/KiemSoat/ChiTiet",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "description": "Chi tiết thiết kế kiểm soát, lịch sử kiểm tra hiệu lực và điểm yếu phát sinh"
+    },
+    {
+      "id": "kiem-soat-ke-hoach",
+      "module": "kiem-soat",
+      "name": "Kế hoạch kiểm tra",
+      "type": "list",
+      "routes": ["/kiem-soat/ke-hoach-kiem-tra"],
+      "screenDir": "src/screens/KiemSoat/KeHoachKiemTra",
+      "roles": ["admin", "qtrr", "auditor", "owner"],
+      "description": "Lập và theo dõi kế hoạch kiểm tra hiệu lực kiểm soát theo kỳ"
+    },
+    {
+      "id": "kiem-soat-ket-qua",
+      "module": "kiem-soat",
+      "name": "Kết quả kiểm tra",
+      "type": "list",
+      "routes": ["/kiem-soat/ket-qua-kiem-tra"],
+      "screenDir": "src/screens/KiemSoat/KetQuaKiemTra",
+      "roles": ["admin", "qtrr", "auditor", "owner"],
+      "description": "Ghi nhận kết quả kiểm tra, kết luận không hiệu quả sẽ nhắc lập điểm yếu"
+    },
+    {
+      "id": "kiem-soat-cua-toi",
+      "module": "kiem-soat",
+      "name": "Kiểm soát của tôi",
+      "type": "list",
+      "routes": ["/kiem-soat/cua-toi"],
+      "screenDir": "src/screens/KiemSoat/CuaToi",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "description": "Kiểm soát do tài khoản đang đăng nhập làm chủ, kèm việc cần xử lý"
+    },
+
+    {
+      "id": "khac-phuc-diem-yeu",
+      "module": "khac-phuc",
+      "name": "Sổ theo dõi điểm yếu",
+      "type": "list",
+      "routes": ["/khac-phuc/diem-yeu"],
+      "screenDir": "src/screens/KhacPhuc/DiemYeu",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "editRoles": ["admin", "qtrr", "owner"],
+      "description": "Danh sách điểm yếu kiểm soát theo nguồn phát hiện, mức độ và hạn khắc phục"
+    },
+    {
+      "id": "khac-phuc-diem-yeu-form",
+      "module": "khac-phuc",
+      "name": "Thêm và sửa điểm yếu",
+      "type": "form",
+      "routes": [
+        "/khac-phuc/diem-yeu/them-moi",
+        "/khac-phuc/diem-yeu/[id]/sua"
+      ],
+      "screenDir": "src/screens/KhacPhuc/DeficiencyForm",
+      "roles": ["admin", "qtrr", "owner"],
+      "description": "Form ghi nhận điểm yếu, nhận tham số event hoặc test từ màn hình nguồn",
+      "queryParams": ["event", "control", "test"]
+    },
+    {
+      "id": "khac-phuc-diem-yeu-chi-tiet",
+      "module": "khac-phuc",
+      "name": "Chi tiết điểm yếu",
+      "type": "detail",
+      "routes": ["/khac-phuc/diem-yeu/[id]"],
+      "screenDir": "src/screens/KhacPhuc/DiemYeuChiTiet",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "description": "Chi tiết điểm yếu, nguyên nhân gốc và các hành động khắc phục gắn kèm"
+    },
+    {
+      "id": "khac-phuc-kppn",
+      "module": "khac-phuc",
+      "name": "Bảng theo dõi KPPN",
+      "type": "list",
+      "routes": ["/khac-phuc/kppn"],
+      "screenDir": "src/screens/KhacPhuc/Kppn",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "editRoles": ["admin", "qtrr", "owner"],
+      "description": "Theo dõi hành động khắc phục và phòng ngừa, tiến độ và trạng thái đồng bộ"
+    },
+    {
+      "id": "khac-phuc-kppn-form",
+      "module": "khac-phuc",
+      "name": "Thêm và sửa KPPN",
+      "type": "form",
+      "routes": ["/khac-phuc/kppn/them-moi", "/khac-phuc/kppn/[id]/sua"],
+      "screenDir": "src/screens/KhacPhuc/KppnForm",
+      "roles": ["admin", "qtrr", "owner"],
+      "description": "Form lập hành động khắc phục, nhận tham số từ sự kiện hoặc điểm yếu",
+      "queryParams": ["event", "deficiency"]
+    },
+    {
+      "id": "khac-phuc-kppn-chi-tiet",
+      "module": "khac-phuc",
+      "name": "Chi tiết KPPN",
+      "type": "detail",
+      "routes": ["/khac-phuc/kppn/[id]"],
+      "screenDir": "src/screens/KhacPhuc/KppnChiTiet",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "description": "Chi tiết hành động, giao việc sang hệ thống nguồn, cập nhật tiến độ và nghiệm thu"
+    },
+    {
+      "id": "khac-phuc-kppn-qua-han",
+      "module": "khac-phuc",
+      "name": "KPPN quá hạn",
+      "type": "report",
+      "routes": ["/khac-phuc/kppn-qua-han"],
+      "screenDir": "src/screens/KhacPhuc/KppnQuaHan",
+      "roles": ["admin", "qtrr", "auditor", "owner"],
+      "description": "Danh sách hành động quá hạn sắp theo số ngày trễ giảm dần, hỗ trợ gia hạn"
+    },
+
+    {
+      "id": "su-kien-so-theo-doi",
+      "module": "su-kien",
+      "name": "Sổ theo dõi sự kiện",
+      "type": "list",
+      "routes": ["/su-kien/so-theo-doi"],
+      "screenDir": "src/screens/SuKien/SoTheoDoi",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "editRoles": ["admin", "qtrr", "owner"],
+      "description": "Danh sách sự kiện rủi ro, sự kiện bảo mật bị che nội dung nhưng vẫn giữ dòng để không lệch số liệu",
+      "features": [
+        "Cột độ trễ phát hiện, cảnh báo khi vượt 7 ngày",
+        "Tổn thất hiển thị cả gộp và ròng",
+        "5 tab: đang mở, của tôi, hồ sơ chưa đủ, suýt xảy ra, đã đóng"
+      ]
+    },
+    {
+      "id": "su-kien-form",
+      "module": "su-kien",
+      "name": "Thêm và sửa sự kiện",
+      "type": "form",
+      "routes": [
+        "/su-kien/so-theo-doi/them-moi",
+        "/su-kien/so-theo-doi/[id]/sua"
+      ],
+      "screenDir": "src/screens/SuKien/EventForm",
+      "roles": ["admin", "qtrr", "owner"],
+      "description": "Form đầy đủ 5 khối với 19 rule chặn lưu và cảnh báo nghiệp vụ"
+    },
+    {
+      "id": "su-kien-chi-tiet",
+      "module": "su-kien",
+      "name": "Chi tiết sự kiện",
+      "type": "detail",
+      "routes": ["/su-kien/so-theo-doi/[id]"],
+      "screenDir": "src/screens/SuKien/ChiTiet",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "description": "Trang chi tiết 5 tab, chặn hẳn truy cập nếu không có quyền xem sự kiện bảo mật",
+      "features": [
+        "Tab Thông tin chung, Tổn thất và thu hồi, Rủi ro và kiểm soát, Điểm yếu và KPPN, Lịch sử",
+        "Hộp thoại chuyển trạng thái với 3 điều kiện chặn",
+        "Nút lập điểm yếu và lập KPPN từ sự kiện"
+      ]
+    },
+    {
+      "id": "su-kien-bao-cao-nhanh",
+      "module": "su-kien",
+      "name": "Báo cáo nhanh sự kiện",
+      "type": "form",
+      "routes": ["/su-kien/bao-cao-nhanh"],
+      "screenDir": "src/screens/SuKien/BaoCaoNhanh",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "description": "Form rút gọn 6 trường cho mọi cán bộ nhân viên, có chế độ báo cáo ẩn danh",
+      "features": [
+        "Mức nghiêm trọng cố định Trung bình, Ban QTRR đánh giá lại khi xác minh",
+        "Ngày phát hiện đặt cứng là hôm nay, không cho khai",
+        "Ẩn danh tự bật cờ bảo mật"
+      ]
+    },
+    {
+      "id": "su-kien-cua-toi",
+      "module": "su-kien",
+      "name": "Sự kiện của tôi",
+      "type": "list",
+      "routes": ["/su-kien/cua-toi"],
+      "screenDir": "src/screens/SuKien/CuaToi",
+      "roles": ["admin", "qtrr", "auditor", "owner", "staff"],
+      "description": "Gộp sự kiện tôi báo cáo và sự kiện tôi đang xử lý, kèm cột việc cần làm"
+    }
+  ],
+  "integrations": [
+    {
+      "key": "amis",
+      "name": "AMIS Công việc",
+      "direction": "two-way",
+      "note": "GRC giao việc một chiều, nhận tiến độ hai chiều, quyền nghiệm thu giữ tại GRC"
+    },
+    {
+      "key": "jira",
+      "name": "JIRA",
+      "direction": "two-way",
+      "note": "Tương tự AMIS, dùng cho hành động kỹ thuật"
+    }
+  ]
+}
