@@ -1,13 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  IconBolt,
-  IconGridDots,
-  IconLock,
-  IconPlugConnected,
-  IconShieldCheck,
-} from "@tabler/icons-react";
+import { IconLock } from "@tabler/icons-react";
 import { Badge, EmptyState, Tabs } from "@/components/ui";
 import {
   ContentCard,
@@ -18,6 +12,10 @@ import {
 import { useSession } from "@/config/session";
 import TabDonVi from "./TabDonVi";
 import TabNhanSu from "./TabNhanSu";
+import TabNhomRuiRo from "./TabNhomRuiRo";
+import TabNhomSuKien from "./TabNhomSuKien";
+import TabMaTran from "./TabMaTran";
+import TabKetNoi from "./TabKetNoi";
 
 type TabKey =
   | "don-vi"
@@ -91,43 +89,13 @@ export default function QuanTriDanhMucScreen() {
           <div className="p-4">
             {tab === "don-vi" && <TabDonVi canEdit={canEdit} />}
             {tab === "nhan-su" && <TabNhanSu canEdit={canEdit} />}
-
-            {/* 4 tab dưới đây được bổ sung ở lô 3B */}
-            {tab === "nhom-rui-ro" && (
-              <ComingSoon
-                icon={<IconShieldCheck size={24} />}
-                title="Nhóm rủi ro"
-              />
-            )}
-            {tab === "nhom-su-kien" && (
-              <ComingSoon icon={<IconBolt size={24} />} title="Nhóm sự kiện" />
-            )}
-            {tab === "ma-tran" && (
-              <ComingSoon
-                icon={<IconGridDots size={24} />}
-                title="Ma trận rủi ro"
-              />
-            )}
-            {tab === "ket-noi" && (
-              <ComingSoon
-                icon={<IconPlugConnected size={24} />}
-                title="Kết nối hệ thống"
-              />
-            )}
+            {tab === "nhom-rui-ro" && <TabNhomRuiRo canEdit={canEdit} />}
+            {tab === "nhom-su-kien" && <TabNhomSuKien canEdit={canEdit} />}
+            {tab === "ma-tran" && <TabMaTran canEdit={canEdit} />}
+            {tab === "ket-noi" && <TabKetNoi canEdit={canEdit} />}
           </div>
         </ContentCard>
       </PageBody>
     </PageContainer>
-  );
-}
-
-function ComingSoon({ icon, title }: { icon: React.ReactNode; title: string }) {
-  return (
-    <EmptyState
-      icon={icon}
-      title={`Danh mục ${title}`}
-      description="Nội dung tab này được bổ sung ở lô tiếp theo."
-      compact
-    />
   );
 }
