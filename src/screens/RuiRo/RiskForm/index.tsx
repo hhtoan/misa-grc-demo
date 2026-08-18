@@ -290,7 +290,7 @@ export default function RiskFormScreen({ code }: { code?: string }) {
     });
   }
 
-  const categoryOptions = lk.categoryOptions ?? [];
+  const categoryOptions = lk.riskCategoryOptions ?? [];
 
   const inherentScore =
     form.inherentLikelihood && form.inherentImpact

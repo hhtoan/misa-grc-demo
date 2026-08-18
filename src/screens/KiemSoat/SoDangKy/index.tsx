@@ -43,6 +43,9 @@ import {
   UserCell,
   useToast,
   type Column,
+  EffectivenessBadge,
+  LifecycleQuickFilter,
+  MissingInfoCell,
 } from "@/components/ui";
 import { PageContainer, PageHeader } from "@/components/layout";
 import { controlRepo, riskRepo, useCollection } from "@/lib/db";
@@ -73,6 +76,17 @@ import {
   summarizeControls,
 } from "@/lib/domain/control-utils";
 import type { Control } from "@/lib/domain/schema";
+import {
+  designEffectivenessOf,
+  operationEffectivenessOf,
+  overallEffectivenessOf,
+} from "@/lib/domain/control-utils";
+import {
+  CONTROL_QUICK_FILTERS,
+  controlMissingInfo,
+  matchControlQuickFilter,
+} from "@/lib/domain/control-lifecycle";
+
 import { formatDate } from "@/lib/format";
 import { useTableState } from "@/lib/table";
 import { useSession } from "@/config/session";
@@ -114,14 +128,11 @@ export default function SoDangKyKiemSoatScreen() {
   /* ------------------ Nhận diện nhân sự đăng nhập ----------------- */
   const currentEmployee = useMemo(
     () => lk.employees.find((e) => e.email === user.email),
-    [lk.employees, user.email]
+    [lk.employees, user.email],
   );
 
   /* --------------------- Tra cứu rủi ro theo id ------------------- */
-  const riskMap = useMemo(
-    () => new Map(risks.map((r) => [r.id, r])),
-    [risks]
-  );
+  const riskMap = useMemo(() => new Map(risks.map((r) => [r.id, r])), [risks]);
 
   const riskOptions = useMemo(
     () =>
@@ -130,7 +141,7 @@ export default function SoDangKyKiemSoatScreen() {
         label: r.name,
         description: r.code,
       })),
-    [risks]
+    [risks],
   );
 
   /* ---------------------------- Bộ lọc ---------------------------- */
@@ -150,6 +161,9 @@ export default function SoDangKyKiemSoatScreen() {
   const [onlyTestFailed, setOnlyTestFailed] = useState(false);
   const [onlyExpiringSoon, setOnlyExpiringSoon] = useState(false);
   const [filterOpen, setFilterOpen] = useState(false);
+
+  /** Lọc nhanh theo vòng đời và hiệu lực, độc lập với tab hiện có */
+  const [lifecycle, setLifecycle] = useState("all");
 
   /* ---------------------------- Hộp thoại ------------------------- */
   const [deleting, setDeleting] = useState<Control | null>(null);
@@ -189,13 +203,13 @@ export default function SoDangKyKiemSoatScreen() {
           isTestOverdue(c) ||
           isNeverTested(c) ||
           isTestFailed(c) ||
-          isControlExpired(c)
+          isControlExpired(c),
       ).length,
       inactive: controls.filter(
-        (c) => c.status === "Hết hiệu lực" || c.status === "Tạm ngưng"
+        (c) => c.status === "Hết hiệu lực" || c.status === "Tạm ngưng",
       ).length,
     }),
-    [controls, currentEmployee]
+    [controls, currentEmployee],
   );
 
   /* --------------------------- Table state ------------------------ */
@@ -259,6 +273,13 @@ export default function SoDangKyKiemSoatScreen() {
           return c.effectiveDate;
         case "status":
           return CONTROL_STATUS_ORDER[c.status];
+        case "design":
+          return designEffectivenessOf(c);
+        case "operation":
+          return operationEffectivenessOf(c);
+        case "overall":
+          return overallEffectivenessOf(c);
+
         default:
           return null;
       }
@@ -281,8 +302,34 @@ export default function SoDangKyKiemSoatScreen() {
       onlyTestOverdue,
       onlyTestFailed,
       onlyExpiringSoon,
+      lifecycle,
     ],
   });
+
+  /**
+   * Số đếm cho từng chip quick filter.
+   * Đếm trên tập đã áp bộ lọc đơn vị nhưng chưa áp từ khoá tìm kiếm,
+   * để số trên chip không nhảy liên tục khi người dùng đang gõ.
+   */
+  const lifecycleCounts = useMemo(() => {
+    const base = controls.filter((c) => {
+      if (unitId && c.unitId !== unitId) return false;
+      return true;
+    });
+
+    const out: Record<string, number> = {};
+    CONTROL_QUICK_FILTERS.forEach((f) => {
+      out[f.key] = base.filter((c) => matchControlQuickFilter(f.key, c)).length;
+    });
+    return out;
+  }, [controls, unitId]);
+
+  const quickFilterItems = CONTROL_QUICK_FILTERS.map((f) => ({
+    key: f.key,
+    label: f.label,
+    hint: f.hint,
+    count: lifecycleCounts[f.key] ?? 0,
+  }));
 
   const summary = useMemo(() => summarizeControls(t.rows), [t.rows]);
 
@@ -329,7 +376,7 @@ export default function SoDangKyKiemSoatScreen() {
     if (!isControlEditable(c.status)) {
       toast.warning(
         "Không sửa được",
-        `Kiểm soát đang ở trạng thái ${c.status} nên bị khoá chỉnh sửa.`
+        `Kiểm soát đang ở trạng thái ${c.status} nên bị khoá chỉnh sửa.`,
       );
       return;
     }
@@ -358,7 +405,7 @@ export default function SoDangKyKiemSoatScreen() {
         lastTestDate: "",
         evidenceRequirement: c.evidenceRequirement,
       },
-      user.name
+      user.name,
     );
     toast.success("Đã nhân bản", `Bản sao ${created.code} ở trạng thái Nháp.`);
   }
@@ -367,7 +414,7 @@ export default function SoDangKyKiemSoatScreen() {
     if (!isControlDeletable(c.status)) {
       toast.error(
         "Không xoá được",
-        `Chỉ xoá được kiểm soát ở trạng thái Nháp. ${c.code} đang ở trạng thái ${c.status}.`
+        `Chỉ xoá được kiểm soát ở trạng thái Nháp. ${c.code} đang ở trạng thái ${c.status}.`,
       );
       return;
     }
@@ -379,7 +426,7 @@ export default function SoDangKyKiemSoatScreen() {
     if (list.length === 0) {
       toast.warning(
         "Không chuyển được",
-        `${c.status} là trạng thái cuối của luồng.`
+        `${c.status} là trạng thái cuối của luồng.`,
       );
       return;
     }
@@ -390,7 +437,7 @@ export default function SoDangKyKiemSoatScreen() {
     controlRepo.update(c.id, { status: list[0].to });
     toast.success(
       `${c.code}: ${list[0].label}`,
-      `Trạng thái chuyển từ ${c.status} sang ${list[0].to}.`
+      `Trạng thái chuyển từ ${c.status} sang ${list[0].to}.`,
     );
   }
 
@@ -401,7 +448,7 @@ export default function SoDangKyKiemSoatScreen() {
       const c = controlRepo.getById(id);
       if (!c) return;
       const auto = controlNextTransitions(c.status).find(
-        (tr) => !tr.requireReason
+        (tr) => !tr.requireReason,
       );
       if (!auto) {
         skipped += 1;
@@ -414,7 +461,7 @@ export default function SoDangKyKiemSoatScreen() {
     if (moved === 0) {
       toast.warning(
         "Không có bản ghi nào được chuyển",
-        "Các kiểm soát đã chọn đang ở trạng thái cuối hoặc cần nhập lý do."
+        "Các kiểm soát đã chọn đang ở trạng thái cuối hoặc cần nhập lý do.",
       );
       return;
     }
@@ -422,7 +469,7 @@ export default function SoDangKyKiemSoatScreen() {
       `Đã chuyển trạng thái ${moved} kiểm soát`,
       skipped > 0
         ? `${skipped} bản ghi bị bỏ qua do ở trạng thái cuối hoặc cần nhập lý do.`
-        : undefined
+        : undefined,
     );
   }
 
@@ -492,7 +539,7 @@ export default function SoDangKyKiemSoatScreen() {
               "inline-flex items-center gap-1 text-[13px]",
               c.riskIds.length === 0
                 ? "font-medium text-danger"
-                : "text-text-secondary"
+                : "text-text-secondary",
             )}
           >
             {c.riskIds.length === 0 && <IconAlertTriangle size={14} />}
@@ -534,7 +581,9 @@ export default function SoDangKyKiemSoatScreen() {
           <span
             className={cn(
               "text-[12px]",
-              isNeverTested(c) ? "font-medium text-lv-medium-text" : "text-text-hint"
+              isNeverTested(c)
+                ? "font-medium text-lv-medium-text"
+                : "text-text-hint",
             )}
           >
             Chưa đánh giá
@@ -567,7 +616,7 @@ export default function SoDangKyKiemSoatScreen() {
               className={cn(
                 "inline-flex items-center gap-1",
                 overdue && "font-medium text-danger",
-                soon && "font-medium text-lv-medium-text"
+                soon && "font-medium text-lv-medium-text",
               )}
             >
               {(overdue || soon) && <IconCalendarExclamation size={14} />}
@@ -605,6 +654,50 @@ export default function SoDangKyKiemSoatScreen() {
         </span>
       ),
     },
+    {
+      key: "design",
+      header: "Thiết kế",
+      width: 130,
+      sortable: true,
+      render: (c) => (
+        <EffectivenessBadge
+          size="sm"
+          short
+          value={designEffectivenessOf(c)}
+          dimension="Thiết kế"
+        />
+      ),
+    },
+    {
+      key: "operation",
+      header: "Vận hành",
+      width: 130,
+      sortable: true,
+      render: (c) => (
+        <EffectivenessBadge
+          size="sm"
+          short
+          value={operationEffectivenessOf(c)}
+          dimension="Vận hành"
+        />
+      ),
+    },
+    {
+      key: "overall",
+      header: "Hiệu quả chung",
+      width: 160,
+      sortable: true,
+      render: (c) => <EffectivenessBadge value={overallEffectivenessOf(c)} />,
+    },
+    {
+      key: "missing",
+      header: "Hồ sơ",
+      minWidth: 220,
+      render: (c) => (
+        <MissingInfoCell items={controlMissingInfo(c)} maxVisible={2} />
+      ),
+    },
+
     {
       key: "actions",
       header: "",
@@ -663,7 +756,7 @@ export default function SoDangKyKiemSoatScreen() {
               onClick={() =>
                 toast.info(
                   "Đang xuất khẩu",
-                  `Chuẩn bị tệp Excel cho ${t.total} bản ghi (giả lập).`
+                  `Chuẩn bị tệp Excel cho ${t.total} bản ghi (giả lập).`,
                 )
               }
             >
@@ -791,6 +884,12 @@ export default function SoDangKyKiemSoatScreen() {
                 <b className="text-text-primary">{summary.avgHealth}%</b>
               </span>
             </div>
+            <LifecycleQuickFilter
+              items={quickFilterItems}
+              value={lifecycle}
+              onChange={setLifecycle}
+              hideEmpty
+            />
 
             {/* ----------------------- Toolbar ------------------------ */}
             <TableToolbar
@@ -847,7 +946,9 @@ export default function SoDangKyKiemSoatScreen() {
                   <Button
                     variant="primary"
                     icon={<IconPlus size={16} />}
-                    onClick={() => router.push("/kiem-soat/so-dang-ky/them-moi")}
+                    onClick={() =>
+                      router.push("/kiem-soat/so-dang-ky/them-moi")
+                    }
                   >
                     Thêm kiểm soát
                   </Button>
@@ -1055,7 +1156,7 @@ export default function SoDangKyKiemSoatScreen() {
           if (ids.length === 0) {
             toast.error(
               "Không xoá được bản ghi nào",
-              "Chỉ xoá được kiểm soát ở trạng thái Nháp."
+              "Chỉ xoá được kiểm soát ở trạng thái Nháp.",
             );
             return;
           }
@@ -1063,7 +1164,7 @@ export default function SoDangKyKiemSoatScreen() {
             `Đã xoá ${ids.length} kiểm soát`,
             skipped > 0
               ? `${skipped} bản ghi bị bỏ qua vì đã đi vào vận hành.`
-              : undefined
+              : undefined,
           );
         }}
         tone="danger"
@@ -1084,7 +1185,7 @@ export default function SoDangKyKiemSoatScreen() {
 
   function toggleStatus(s: string) {
     setStatuses((prev) =>
-      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
+      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
     );
   }
 
@@ -1169,7 +1270,7 @@ function StatChip({
   const base = cn(
     "inline-flex items-center gap-1.5 rounded-ctrl px-2.5 py-1 text-[12px] font-medium transition-all",
     style[tone],
-    value === 0 && !active && "opacity-55"
+    value === 0 && !active && "opacity-55",
   );
 
   if (!onClick) {
@@ -1189,7 +1290,7 @@ function StatChip({
         base,
         "cursor-pointer hover:brightness-95",
         active && "opacity-100 ring-2 ring-offset-1",
-        active && ring[tone]
+        active && ring[tone],
       )}
     >
       {content}
@@ -1239,7 +1340,7 @@ function ControlTransitionModal({
     });
     onDone(
       `${control.code}: ${selected.label}`,
-      `Trạng thái chuyển từ ${control.status} sang ${selected.to}.`
+      `Trạng thái chuyển từ ${control.status} sang ${selected.to}.`,
     );
   }
 
@@ -1328,9 +1429,8 @@ function ControlTransitionModal({
                   <IconShieldCheck size={16} className="mt-px shrink-0" />
                   <span>
                     Đây là kiểm soát trọng yếu. Sau khi ban hành, chu kỳ kiểm
-                    tra hiệu lực sẽ là{" "}
-                    <b>{control.frequency.toLowerCase()}</b> theo tần suất vận
-                    hành đã khai báo.
+                    tra hiệu lực sẽ là <b>{control.frequency.toLowerCase()}</b>{" "}
+                    theo tần suất vận hành đã khai báo.
                   </span>
                 </div>
               )}

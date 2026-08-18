@@ -46,3 +46,9 @@ export type {
   LifecycleQuickFilterProps,
   QuickFilterItem,
 } from "./LifecycleQuickFilter";
+
+export { default as EffectivenessBadge } from "./EffectivenessBadge";
+export type {
+  EffectivenessBadgeProps,
+  EffectivenessLabel,
+} from "./EffectivenessBadge";
