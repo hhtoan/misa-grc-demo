@@ -7,14 +7,11 @@ import {
   IconArrowLeft,
   IconArrowRight,
   IconCheck,
-  IconCircleCheck,
   IconDeviceFloppy,
   IconInfoCircle,
   IconLock,
-  IconRadar,
-  IconShieldCheck,
-  IconShieldX,
-  IconTrash,
+  IconTarget,
+  IconTools,
 } from "@tabler/icons-react";
 import {
   Badge,
@@ -24,14 +21,10 @@ import {
   DateInput,
   Input,
   LifecycleStepper,
-  RiskBadge,
-  ScoreSelector,
   SearchInput,
   Select,
   Textarea,
-  Tooltip,
   useToast,
-  type ScoreValue,
 } from "@/components/ui";
 import {
   ContentCard,
@@ -42,165 +35,133 @@ import {
 } from "@/components/layout";
 import { controlRepo, riskRepo, useCollection } from "@/lib/db";
 import { useLookups } from "@/lib/domain/lookups";
-import { RISK_SCORING_CRITERIA } from "@/lib/domain/scoring-criteria";
-import { overallEffectivenessOf } from "@/lib/domain/control-utils";
-import { RISK_STAGES } from "@/lib/domain/risk-lifecycle";
+import { RISK_SOURCES } from "@/lib/domain/enums";
+import {
+  emptyRiskForm,
+  inherentLevelOf,
+  inherentScoreOf,
+  riskToForm,
+  type RiskFormValue,
+} from "@/lib/domain/risk-utils";
+import {
+  RISK_STAGES,
+  WIZARD_STAGES,
+  stageIndexOf,
+  type RiskStageKey,
+} from "@/lib/domain/risk-lifecycle";
 import { useSession } from "@/config/session";
 import { cn } from "@/lib/cn";
+import {
+  clearDraft,
+  readDraft,
+  validateAll,
+  validateStage,
+  writeDraft,
+  type FlatErrorMap,
+} from "./wizard-config";
 
 /* ==================================================================
-   Kiểu tối giản, không import từ schema
+   Wizard khai báo rủi ro, 8 bước.
+
+   Điểm khác biệt cốt lõi so với bản 5 bước:
+
+   1. STATE LÀ RiskFormValue, KHÔNG PHẢI KIỂU TỰ KHAI.
+      Nhờ vậy gõ sai tên trường là TypeScript báo đỏ ngay, thay vì lưu
+      xong mới phát hiện dữ liệu mất. Bốn lỗi trước đây gồm treatment,
+      reviewDate, identifiedDate và tags đều thuộc loại đó.
+
+   2. KIỂM TRA BẰNG SCHEMA, WIZARD CHỈ LỌC THEO BƯỚC.
+      Mọi rule nghiệp vụ nằm ở riskFormSchema, wizard không viết lại.
+
+   3. KHÔNG CHẶN ĐIỂM CÒN LẠI CAO HƠN VỐN CÓ.
+      Ba lớp chặn cũ đã gỡ hết: superRefine ở schema, điều kiện trong
+      validateStep, và prop maxValue của ScoreSelector. Thay bằng cảnh
+      báo mềm cộng bắt buộc nêu căn cứ.
+
+   4. ĐIỀU HƯỚNG THEO KHOÁ GIAI ĐOẠN, KHÔNG THEO CHỈ SỐ.
+      Đây là lần thứ hai đổi số bước, nên mọi chỗ so khớp bằng khoá để
+      lần sau thêm bước chỉ cần sửa mảng cấu hình.
    ================================================================== */
 
-interface RiskRecord {
-  id: string;
-  code: string;
-  name?: string;
-  description?: string;
-  cause?: string;
-  consequence?: string;
-  categoryId?: string;
-  unitId?: string;
-  ownerId?: string;
-  source?: string;
-  status?: string;
-  inherentLikelihood?: number | null;
-  inherentImpact?: number | null;
-  residualLikelihood?: number | null;
-  residualImpact?: number | null;
-  residualAssessedAt?: string;
-  residualAssessedBy?: string;
-  residualRationale?: string;
-  controlsChangedAt?: string;
-  treatmentStrategy?: string;
-  nextReviewDate?: string;
-  isZeroTolerance?: boolean;
-  noControlAccepted?: boolean;
-}
+/* ------------------------------------------------------------------ */
+/* Kiểu tối giản cho dữ liệu ngoài phạm vi Risk                        */
+/* ------------------------------------------------------------------ */
 
-interface ControlRecord {
+interface ControlLite {
   id: string;
   code: string;
   name?: string;
-  type?: string;
-  frequency?: string;
-  status?: string;
+  type?: string | null;
+  nature?: string | null;
+  frequency?: string | null;
+  status?: string | null;
   unitId?: string;
-  ownerId?: string;
   isKeyControl?: boolean;
   riskIds?: string[];
-  designEffectiveness?: string;
-  operationEffectiveness?: string;
-  lastTestResult?: string;
+  designEffectiveness?: string | null;
+  operationEffectiveness?: string | null;
+  lastTestResult?: string | null;
 }
 
-interface SimpleRepo<T> {
-  create: (value: Partial<T>, by?: string) => T;
-  update: (id: string, patch: Partial<T>) => void;
+/**
+ * Ba nhóm dữ liệu wizard KHÔNG thuộc riskFormSchema, nên giữ state riêng:
+ *   - controlIds : liên kết lưu ở control.riskIds
+ *   - weakness   : sinh ra bản ghi Deficiency riêng ở bước 5
+ *   - touched    : chỉ là trạng thái giao diện, không lưu
+ */
+interface WizardExtra {
+  controlIds: string[];
+  weakness: {
+    has: boolean;
+    name: string;
+    description: string;
+    priority: "Theo dõi sau" | "Phân tích ngay";
+  };
+  touched: string[];
 }
 
-const rRepo = riskRepo as unknown as SimpleRepo<RiskRecord>;
-const cRepo = controlRepo as unknown as SimpleRepo<ControlRecord>;
-
-/* ==================================================================
-   Hằng số
-   ================================================================== */
-
-const TREATMENT_OPTIONS = [
-  {
-    value: "Giảm thiểu",
-    label: "Giảm thiểu",
-    description: "Bổ sung hoặc tăng cường kiểm soát để hạ mức rủi ro",
+const EMPTY_EXTRA: WizardExtra = {
+  controlIds: [],
+  weakness: {
+    has: false,
+    name: "",
+    description: "",
+    priority: "Theo dõi sau",
   },
-  {
-    value: "Chuyển giao",
-    label: "Chuyển giao",
-    description: "Mua bảo hiểm hoặc chuyển trách nhiệm sang bên thứ ba",
-  },
-  {
-    value: "Tránh",
-    label: "Tránh",
-    description: "Dừng hoặc thay đổi hoạt động phát sinh rủi ro",
-  },
-  {
-    value: "Chấp nhận",
-    label: "Chấp nhận",
-    description: "Giữ nguyên, chỉ theo dõi vì mức rủi ro trong khẩu vị",
-  },
-];
+  touched: [],
+};
 
-const SOURCE_OPTIONS = [
-  { value: "Nội bộ", label: "Nội bộ" },
-  { value: "Bên ngoài", label: "Bên ngoài" },
-  { value: "Kết hợp", label: "Kết hợp" },
-];
+/* ------------------------------------------------------------------ */
+/* Hằng số                                                            */
+/* ------------------------------------------------------------------ */
 
-const DRAFT_KEY = "misa-grc-risk-wizard-draft";
+/** Sinh từ enum thay vì khai tay, để không bao giờ lệch giá trị */
+const SOURCE_OPTIONS = RISK_SOURCES.map((v) => ({ value: v, label: v }));
 
-/** Ngưỡng phân mức, khớp cấu hình mặc định của tab Ma trận rủi ro */
-function levelOfScore(score: number) {
-  if (score <= 4) return "Thấp" as const;
-  if (score <= 9) return "Trung bình" as const;
-  if (score <= 15) return "Cao" as const;
-  return "Trọng yếu" as const;
+/** Kiểm soát chưa phê duyệt thì chưa tính là đang bảo vệ rủi ro */
+const NOT_YET_ACTIVE = new Set(["Nháp", "Chờ duyệt"]);
+
+interface SimpleRepo {
+  create: (
+    value: Record<string, unknown>,
+    by?: string,
+  ) => {
+    id: string;
+    code: string;
+  };
+  update: (id: string, patch: Record<string, unknown>) => void;
 }
 
-function today() {
+const rRepo = riskRepo as unknown as SimpleRepo;
+const cRepo = controlRepo as unknown as SimpleRepo;
+
+function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Kiểm soát chưa phê duyệt thì chưa coi là đang bảo vệ rủi ro */
-const NOT_YET_ACTIVE = new Set(["Nháp", "Chờ duyệt"]);
-
-/* ==================================================================
-   Giá trị wizard
-   ================================================================== */
-
-interface WizardValue {
-  name: string;
-  description: string;
-  cause: string;
-  consequence: string;
-  categoryId: string;
-  unitId: string;
-  ownerId: string;
-  source: string;
-  inherentLikelihood: number | null;
-  inherentImpact: number | null;
-  residualLikelihood: number | null;
-  residualImpact: number | null;
-  residualRationale: string;
-  treatmentStrategy: string;
-  nextReviewDate: string;
-  isZeroTolerance: boolean;
-  noControlAccepted: boolean;
-  controlIds: string[];
-}
-
-const EMPTY: WizardValue = {
-  name: "",
-  description: "",
-  cause: "",
-  consequence: "",
-  categoryId: "",
-  unitId: "",
-  ownerId: "",
-  source: "Nội bộ",
-  inherentLikelihood: null,
-  inherentImpact: null,
-  residualLikelihood: null,
-  residualImpact: null,
-  residualRationale: "",
-  treatmentStrategy: "",
-  nextReviewDate: "",
-  isZeroTolerance: false,
-  noControlAccepted: false,
-  controlIds: [],
-};
-
-/* ==================================================================
-   Màn hình
-   ================================================================== */
+/* ================================================================== */
+/* Màn hình                                                            */
+/* ================================================================== */
 
 export default function RiskFormScreen({ code }: { code?: string }) {
   const router = useRouter();
@@ -208,8 +169,11 @@ export default function RiskFormScreen({ code }: { code?: string }) {
   const { user } = useSession();
   const lk = useLookups();
 
-  const risks = useCollection(riskRepo) as unknown as RiskRecord[];
-  const controls = useCollection(controlRepo) as unknown as ControlRecord[];
+  const risks = useCollection(riskRepo) as unknown as (RiskFormValue & {
+    id: string;
+    code: string;
+  })[];
+  const controls = useCollection(controlRepo) as unknown as ControlLite[];
 
   const editing = useMemo(
     () => (code ? risks.find((r) => r.code === code) : undefined),
@@ -217,242 +181,216 @@ export default function RiskFormScreen({ code }: { code?: string }) {
   );
   const isEdit = !!editing;
 
-  const [step, setStep] = useState(0);
-  const [form, setForm] = useState<WizardValue>(EMPTY);
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [stage, setStage] = useState<RiskStageKey>("context");
+  const [form, setForm] = useState<RiskFormValue>(() => emptyRiskForm());
+  const [extra, setExtra] = useState<WizardExtra>(EMPTY_EXTRA);
+  const [errors, setErrors] = useState<FlatErrorMap>({});
   const [saving, setSaving] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [loadedKey, setLoadedKey] = useState("");
+  const [draftLoaded, setDraftLoaded] = useState(false);
 
-  /* ------------------------- Nạp dữ liệu ------------------------- */
+  /* --------------------------- Nạp dữ liệu ---------------------------- */
 
-  const key = editing?.id ?? "new";
-  if (key !== loadedKey) {
-    setLoadedKey(key);
+  const recordKey = editing?.id ?? "new";
+  if (recordKey !== loadedKey) {
+    setLoadedKey(recordKey);
     setErrors({});
-    setStep(0);
+    setStage("context");
+
     if (editing) {
-      setForm({
-        name: editing.name ?? "",
-        description: editing.description ?? "",
-        cause: editing.cause ?? "",
-        consequence: editing.consequence ?? "",
-        categoryId: editing.categoryId ?? "",
-        unitId: editing.unitId ?? "",
-        ownerId: editing.ownerId ?? "",
-        source: editing.source ?? "Nội bộ",
-        inherentLikelihood: editing.inherentLikelihood ?? null,
-        inherentImpact: editing.inherentImpact ?? null,
-        residualLikelihood: editing.residualLikelihood ?? null,
-        residualImpact: editing.residualImpact ?? null,
-        residualRationale: editing.residualRationale ?? "",
-        treatmentStrategy: editing.treatmentStrategy ?? "",
-        nextReviewDate: editing.nextReviewDate ?? "",
-        isZeroTolerance: !!editing.isZeroTolerance,
-        noControlAccepted: !!editing.noControlAccepted,
+      setForm(riskToForm(editing as never));
+      setExtra({
+        ...EMPTY_EXTRA,
         controlIds: controls
           .filter((c) => (c.riskIds ?? []).includes(editing.id))
           .map((c) => c.id),
+        /* Bản ghi đã có thì coi như điểm đã được xác nhận */
+        touched: [
+          "inherentLikelihood",
+          "inherentImpact",
+          "residualLikelihood",
+          "residualImpact",
+        ],
       });
     } else {
-      setForm(EMPTY);
+      setForm(emptyRiskForm());
+      setExtra(EMPTY_EXTRA);
     }
   }
 
-  /* Nạp nháp khi thêm mới */
+  /* Nạp nháp, chỉ khi thêm mới và chỉ một lần */
   useEffect(() => {
-    if (isEdit) return;
-    try {
-      const raw = window.localStorage.getItem(DRAFT_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as WizardValue;
-      if (parsed && typeof parsed.name === "string") setForm(parsed);
-    } catch {
-      /* Nháp hỏng thì bỏ qua */
-    }
+    if (isEdit || draftLoaded) return;
+    setDraftLoaded(true);
+
+    const draft = readDraft();
+    if (!draft) return;
+
+    setForm(draft.form);
+    setExtra((prev) => ({ ...prev, controlIds: draft.controlIds ?? [] }));
+    setStage(draft.stage ?? "context");
+
+    toast.info?.(
+      "Đã nạp lại bản nháp",
+      "Nội dung anh lưu trước đó được phục hồi, có thể tiếp tục từ bước đang dừng.",
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isEdit, draftLoaded]);
 
-  /* --------------------------- Tiện ích -------------------------- */
+  /* ---------------------------- Tiện ích ------------------------------ */
 
-  function patch(next: Partial<WizardValue>) {
+  function patch(next: Partial<RiskFormValue>) {
     setForm((prev) => ({ ...prev, ...next }));
+
+    /* Người dùng vừa sửa trường nào thì xoá lỗi của trường đó */
     setErrors((prev) => {
+      const keys = Object.keys(next);
+      if (!keys.some((k) => prev[k])) return prev;
       const out = { ...prev };
-      let changed = false;
-      Object.keys(next).forEach((k) => {
-        if (out[k]) {
-          delete out[k];
-          changed = true;
-        }
-      });
-      return changed ? out : prev;
+      keys.forEach((k) => delete out[k]);
+      return out;
     });
   }
 
-  const categoryOptions = lk.riskCategoryOptions ?? [];
-
-  const inherentScore =
-    form.inherentLikelihood && form.inherentImpact
-      ? form.inherentLikelihood * form.inherentImpact
-      : null;
-
-  const residualScore =
-    form.residualLikelihood && form.residualImpact
-      ? form.residualLikelihood * form.residualImpact
-      : null;
-
-  const requiresControl = !!inherentScore && inherentScore > 9;
-
-  const pickedControls = useMemo(
-    () => controls.filter((c) => form.controlIds.includes(c.id)),
-    [controls, form.controlIds],
-  );
-
-  const activePicked = pickedControls.filter(
-    (c) => !NOT_YET_ACTIVE.has(c.status ?? ""),
-  );
-
-  const controlStageDone = activePicked.length > 0 || form.noControlAccepted;
-
-  /* ------------------------ Kiểm tra từng bước ------------------- */
-
-  function validateStep(i: number): Record<string, string> {
-    const err: Record<string, string> = {};
-
-    if (i === 0) {
-      if (!form.name.trim()) err.name = "Bắt buộc nhập tên rủi ro";
-      else if (form.name.trim().length < 8)
-        err.name = "Tên rủi ro quá ngắn, hãy mô tả rõ hơn để người khác hiểu";
-      if (!form.description.trim()) err.description = "Bắt buộc mô tả rủi ro";
-      if (!form.categoryId) err.categoryId = "Bắt buộc chọn nhóm rủi ro";
-      if (!form.unitId) err.unitId = "Bắt buộc chọn đơn vị";
-      if (!form.ownerId)
-        err.ownerId =
-          "Bắt buộc chọn chủ sở hữu, đây là người chịu trách nhiệm theo dõi rủi ro";
-    }
-
-    if (i === 1) {
-      if (!form.inherentLikelihood)
-        err.likelihood = "Bắt buộc chấm mức khả năng xảy ra";
-      if (!form.inherentImpact) err.impact = "Bắt buộc chấm mức độ ảnh hưởng";
-    }
-
-    if (i === 2) {
-      if (activePicked.length === 0 && !form.noControlAccepted)
-        err.controls = requiresControl
-          ? "Rủi ro cố hữu mức Cao trở lên bắt buộc gắn ít nhất 1 kiểm soát đã phê duyệt"
-          : "Chọn ít nhất 1 kiểm soát, hoặc tuyên bố chấp nhận rủi ro nếu không áp dụng kiểm soát nào";
-      if (requiresControl && activePicked.length === 0)
-        err.controls =
-          "Rủi ro cố hữu mức Cao trở lên bắt buộc gắn ít nhất 1 kiểm soát đã phê duyệt";
-    }
-
-    if (i === 3) {
-      if (!form.residualLikelihood)
-        err.likelihood = "Bắt buộc chấm mức khả năng còn lại";
-      if (!form.residualImpact)
-        err.impact = "Bắt buộc chấm mức ảnh hưởng còn lại";
-      if (
-        form.residualLikelihood &&
-        form.inherentLikelihood &&
-        form.residualLikelihood > form.inherentLikelihood
-      )
-        err.likelihood = "Khả năng còn lại không được cao hơn khả năng cố hữu";
-      if (
-        form.residualImpact &&
-        form.inherentImpact &&
-        form.residualImpact > form.inherentImpact
-      )
-        err.impact = "Mức ảnh hưởng còn lại không được cao hơn mức cố hữu";
-    }
-
-    if (i === 4) {
-      if (!form.treatmentStrategy)
-        err.treatmentStrategy = "Bắt buộc chọn chiến lược ứng phó";
-      if (!form.nextReviewDate)
-        err.nextReviewDate = "Bắt buộc đặt kỳ đánh giá lại";
-      else if (form.nextReviewDate <= today())
-        err.nextReviewDate = "Kỳ đánh giá lại phải ở tương lai";
-    }
-
-    return err;
+  function patchExtra(next: Partial<WizardExtra>) {
+    setExtra((prev) => ({ ...prev, ...next }));
   }
 
-  /** Bước 4 chỉ mở khi đã đi qua bước 3 */
-  const step3Locked = !controlStageDone;
+  /** Ghi nhận người dùng đã chạm vào một trường điểm */
+  function markTouched(...fields: string[]) {
+    setExtra((prev) => {
+      const missing = fields.filter((f) => !prev.touched.includes(f));
+      if (missing.length === 0) return prev;
+      return { ...prev, touched: [...prev.touched, ...missing] };
+    });
+  }
 
-  function goto(i: number) {
-    if (i > 3 || i === 3) {
-      if (step3Locked) {
-        toast.warning(
-          "Chưa mở được bước đánh giá còn lại",
-          "Phải gắn kiểm soát trước, vì điểm còn lại là kết quả sau khi có kiểm soát.",
-        );
-        return;
-      }
+  /* -------------------------- Dữ liệu dẫn xuất ------------------------ */
+
+  const pickedControls = useMemo(
+    () => controls.filter((c) => extra.controlIds.includes(c.id)),
+    [controls, extra.controlIds],
+  );
+
+  const activePicked = useMemo(
+    () => pickedControls.filter((c) => !NOT_YET_ACTIVE.has(c.status ?? "")),
+    [pickedControls],
+  );
+
+  const inherentScore = inherentScoreOf(form);
+  const requiresControl = inherentScore > 9;
+
+  /**
+   * Bước 4 đã hoàn tất chưa. Đây là CỔNG CHẶN duy nhất của wizard.
+   *
+   * Lưu ý neo vào bước 4, KHÔNG neo vào bước liền trước bước 6. Bước 5
+   * Điểm yếu là tuỳ chọn và bỏ qua được, nếu neo sai thì bỏ qua bước 5
+   * sẽ khoá luôn bước 6.
+   */
+  const controlStageDone = activePicked.length > 0 || !!form.noControlAccepted;
+
+  /* --------------------------- Điều hướng ----------------------------- */
+
+  const stageIndex = stageIndexOf(stage);
+  const totalStages = WIZARD_STAGES.length;
+
+  /** Bước này có bị khoá không, kèm lý do để giải thích cho người dùng */
+  function lockReasonOf(key: RiskStageKey): string | undefined {
+    const idx = stageIndexOf(key);
+    const gateIdx = stageIndexOf("residual");
+
+    if (idx >= gateIdx && !controlStageDone)
+      return "Phải gắn kiểm soát ở bước 4 trước, vì điểm còn lại là kết quả sau khi đã có kiểm soát";
+
+    return undefined;
+  }
+
+  function goto(key: RiskStageKey) {
+    const lock = lockReasonOf(key);
+    if (lock) {
+      toast.warning("Chưa mở được bước này", lock);
+      return;
     }
-    setStep(i);
+    setStage(key);
+  }
+
+  function scrollToField(field?: string) {
+    if (!field) return;
+    setTimeout(() => {
+      document
+        .querySelector(`[data-field="${field}"]`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 0);
   }
 
   function next() {
-    const err = validateStep(step);
-    if (Object.keys(err).length > 0) {
-      setErrors(err);
-      const first = Object.keys(err)[0];
-      setTimeout(() => {
-        document
-          .querySelector(`[data-field="${first}"]`)
-          ?.scrollIntoView({ behavior: "smooth", block: "center" });
-      }, 0);
+    const check = validateStage(form, stage);
+
+    if (!check.ok) {
+      setErrors(check.errors);
+      scrollToField(check.firstField);
+      const n = Object.keys(check.errors).length;
       toast.error(
         "Chưa chuyển bước được",
-        `Còn ${Object.keys(err).length} nội dung chưa hợp lệ ở bước này.`,
+        `Còn ${n} nội dung chưa hợp lệ ở bước này.`,
       );
       return;
     }
-    if (step === 2 && step3Locked) return;
-    setStep((s) => Math.min(s + 1, 4));
+
+    /* Cổng chặn riêng của bước 4, không thuộc schema */
+    if (stage === "controls" && !controlStageDone) {
+      toast.error(
+        "Chưa chuyển bước được",
+        requiresControl
+          ? "Rủi ro vốn có mức Cao trở lên bắt buộc gắn ít nhất 1 kiểm soát đã phê duyệt."
+          : "Chọn ít nhất 1 kiểm soát, hoặc tuyên bố chấp nhận rủi ro nếu không áp dụng kiểm soát nào.",
+      );
+      return;
+    }
+
+    setErrors({});
+    const nextStage = WIZARD_STAGES[Math.min(stageIndex + 1, totalStages - 1)];
+    goto(nextStage.key);
   }
 
+  function back() {
+    setErrors({});
+    const prev = WIZARD_STAGES[Math.max(stageIndex - 1, 0)];
+    setStage(prev.key);
+  }
+
+  /* ----------------------------- Nháp -------------------------------- */
+
   function saveDraft() {
-    try {
-      window.localStorage.setItem(DRAFT_KEY, JSON.stringify(form));
+    const ok = writeDraft({ form, controlIds: extra.controlIds, stage });
+    if (ok)
       toast.success(
         "Đã lưu nháp",
         "Nội dung được giữ trong trình duyệt, anh có thể quay lại hoàn tất sau.",
       );
-    } catch {
+    else
       toast.error(
         "Không lưu nháp được",
         "Trình duyệt đang chặn bộ nhớ cục bộ.",
       );
-    }
   }
 
-  function clearDraft() {
-    try {
-      window.localStorage.removeItem(DRAFT_KEY);
-    } catch {
-      /* bỏ qua */
-    }
-  }
-
-  /* -------------------- Gắn kiểm soát vào rủi ro ----------------- */
+  /* ------------------- Gắn kiểm soát vào rủi ro ---------------------- */
 
   /**
    * Kiểm soát gắn rủi ro qua control.riskIds, nên phải cập nhật hai
    * chiều: thêm id vào kiểm soát mới chọn, bỏ khỏi kiểm soát bị bỏ.
    */
-  function applyControlLinks(riskId: string, nextIds: string[]) {
+  function applyControlLinks(riskId: string, nextIds: string[]): boolean {
     let changed = false;
 
     controls.forEach((c) => {
       const list = c.riskIds ?? [];
       const has = list.includes(riskId);
       const should = nextIds.includes(c.id);
-
       if (has === should) return;
+
       changed = true;
       cRepo.update(c.id, {
         riskIds: should ? [...list, riskId] : list.filter((x) => x !== riskId),
@@ -462,96 +400,92 @@ export default function RiskFormScreen({ code }: { code?: string }) {
     return changed;
   }
 
-  /* ----------------------------- Lưu ---------------------------- */
+  /* ------------------------------ Lưu -------------------------------- */
 
   function submit() {
-    const all: Record<string, string> = {};
-    for (let i = 0; i <= 4; i += 1) {
-      const err = validateStep(i);
-      if (Object.keys(err).length > 0) {
-        setStep(i);
-        setErrors(err);
-        toast.error(
-          "Chưa lưu được",
-          `Bước ${i + 1} còn ${Object.keys(err).length} nội dung chưa hợp lệ.`,
-        );
-        return;
-      }
-      Object.assign(all, err);
+    const result = validateAll(form);
+
+    if (!result.ok) {
+      const firstGroup = result.byStage[0];
+      setStage(firstGroup.stage);
+      setErrors(
+        Object.fromEntries(
+          firstGroup.fields.map((f) => [f.field, f.message]),
+        ) as FlatErrorMap,
+      );
+      scrollToField(firstGroup.fields[0]?.field);
+      toast.error(
+        "Chưa lưu được",
+        `Còn ${Object.keys(result.errors).length} nội dung chưa hợp lệ, đã chuyển tới bước đầu tiên có vấn đề.`,
+      );
+      return;
     }
 
     setSaving(true);
     try {
-      const base = {
-        name: form.name.trim(),
-        description: form.description.trim(),
-        cause: form.cause.trim(),
-        consequence: form.consequence.trim(),
-        categoryId: form.categoryId,
-        unitId: form.unitId,
-        ownerId: form.ownerId,
-        source: form.source,
-        inherentLikelihood: form.inherentLikelihood,
-        inherentImpact: form.inherentImpact,
-        residualLikelihood: form.residualLikelihood,
-        residualImpact: form.residualImpact,
-        residualRationale: form.residualRationale.trim(),
-        residualAssessedAt: today(),
-        residualAssessedBy: form.ownerId,
-        treatmentStrategy: form.treatmentStrategy,
-        nextReviewDate: form.nextReviewDate,
-        isZeroTolerance: form.isZeroTolerance,
-        noControlAccepted: form.noControlAccepted,
-      };
+      /* Truyền cả form nên không thể thiếu hoặc sai tên trường nào */
+      const payload: Record<string, unknown> = { ...form };
 
       if (editing) {
-        const linkChanged = applyControlLinks(editing.id, form.controlIds);
+        const linkChanged = applyControlLinks(editing.id, extra.controlIds);
         rRepo.update(editing.id, {
-          ...base,
+          ...payload,
           controlsChangedAt: linkChanged
             ? today()
-            : (editing.controlsChangedAt ?? ""),
+            : ((editing as { controlsChangedAt?: string }).controlsChangedAt ??
+              ""),
         });
         toast.success(
           `Đã lưu ${editing.code}`,
           "Hồ sơ rủi ro đã được cập nhật.",
         );
         router.push(`/rui-ro/so-dang-ky/${editing.code}`);
-      } else {
-        const row = rRepo.create(
-          { ...base, controlsChangedAt: today() },
-          user.name,
-        );
-        applyControlLinks(row.id, form.controlIds);
-        clearDraft();
-        toast.success(
-          `Đã ghi nhận ${row.code}`,
-          "Rủi ro mới xuất hiện ngay trong sổ đăng ký.",
-        );
-        router.push(`/rui-ro/so-dang-ky/${row.code}`);
+        return;
       }
+
+      const row = rRepo.create(
+        { ...payload, controlsChangedAt: today() },
+        user.name,
+      );
+      applyControlLinks(row.id, extra.controlIds);
+      clearDraft();
+
+      toast.success(
+        `Đã ghi nhận ${row.code}`,
+        "Rủi ro mới xuất hiện ngay trong sổ đăng ký.",
+      );
+      router.push(`/rui-ro/so-dang-ky/${row.code}`);
     } finally {
       setSaving(false);
     }
   }
 
-  /* ------------------------ Dải vòng đời ------------------------ */
+  /* -------------------------- Dải vòng đời --------------------------- */
 
-  const stepperItems = RISK_STAGES.map((s, i) => ({
-    key: s.key,
-    label: s.label,
-    description: s.description,
-    state:
-      i < step
-        ? ("done" as const)
-        : i === step
-          ? ("current" as const)
-          : ("todo" as const),
-    warning: i === 3 && step3Locked ? "Cần gắn kiểm soát trước" : undefined,
-    onClick: () => goto(i),
-  }));
+  const stepperItems = WIZARD_STAGES.map((s) => {
+    const idx = stageIndexOf(s.key);
+    const lock = lockReasonOf(s.key);
 
-  /* ============================ Render ========================= */
+    return {
+      key: s.key,
+      label: s.label,
+      description: s.description,
+      state:
+        idx < stageIndex
+          ? ("done" as const)
+          : idx === stageIndex
+            ? ("current" as const)
+            : s.optional
+              ? ("skipped" as const)
+              : ("todo" as const),
+      warning: lock ? "Cần gắn kiểm soát trước" : undefined,
+      onClick: () => goto(s.key),
+    };
+  });
+
+  const currentMeta = WIZARD_STAGES[stageIndex];
+
+  /* ============================== Render ============================= */
 
   return (
     <PageContainer>
@@ -559,27 +493,104 @@ export default function RiskFormScreen({ code }: { code?: string }) {
         showBack
         onBack={() => setLeaving(true)}
         title={isEdit ? `Sửa rủi ro ${editing?.code}` : "Ghi nhận rủi ro"}
-        subtitle="Khai báo theo 5 bước, điểm rủi ro còn lại chỉ chấm sau khi đã gắn kiểm soát"
+        subtitle="Khai báo theo 8 bước, điểm rủi ro còn lại chỉ chấm sau khi đã gắn kiểm soát"
         badge={
-          inherentScore ? (
-            <Badge tone="neutral" dot>
-              Cố hữu {inherentScore} điểm
-            </Badge>
-          ) : undefined
+          <Badge tone="neutral" dot>
+            Vốn có {inherentScore} điểm · {inherentLevelOf(form)}
+          </Badge>
         }
       />
 
       <PageBody className="pb-2">
-        <div className="mx-auto flex max-w-[1000px] flex-col gap-4">
+        <div className="mx-auto flex max-w-[1060px] flex-col gap-4">
           <ContentCard className="py-3">
-            <LifecycleStepper steps={stepperItems} />
+            <LifecycleStepper steps={stepperItems} size="compact" />
           </ContentCard>
 
-          {/* ==================== Bước 1 ==================== */}
-          {step === 0 && (
+          {/* ==================== Bước 1: Bối cảnh ==================== */}
+          {stage === "context" && (
             <ContentCard className="flex flex-col gap-4">
               <StepTitle
                 index={1}
+                title="Bối cảnh rủi ro"
+                note="Rủi ro này đang đe doạ mục tiêu nào, phát sinh ở đơn vị và quy trình nào"
+              />
+
+              <div className="flex gap-2 rounded-ctrl border border-lv-info-border bg-lv-info-bg p-2.5 text-[12px] leading-4 text-lv-info-text">
+                <IconInfoCircle size={16} className="mt-px shrink-0" />
+                <span>
+                  Mỗi rủi ro <b>bắt buộc gắn với ít nhất 1 mục tiêu</b>. Đây là
+                  quy tắc nghiệp vụ cốt lõi: rủi ro không đe doạ mục tiêu nào
+                  thì không cần quản lý, và cũng không có căn cứ để xếp mức ưu
+                  tiên.
+                </span>
+              </div>
+
+              <ObjectivePicker
+                options={lk.objectiveOptions}
+                value={form.objectiveIds}
+                error={errors.objectiveIds}
+                onChange={(ids) => patch({ objectiveIds: ids })}
+              />
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div data-field="unitId">
+                  <Select
+                    label="Đơn vị"
+                    required
+                    searchable
+                    placeholder="Chọn đơn vị chịu ảnh hưởng"
+                    options={lk.unitOptions}
+                    value={form.unitId || null}
+                    error={errors.unitId}
+                    onChange={(v) => patch({ unitId: v ?? "" })}
+                  />
+                </div>
+
+                <div data-field="processId">
+                  <Select
+                    label="Quy trình liên quan"
+                    clearable
+                    searchable
+                    placeholder="Không bắt buộc"
+                    options={lk.processOptions}
+                    value={form.processId || null}
+                    error={errors.processId}
+                    hint={
+                      errors.processId
+                        ? undefined
+                        : "Gắn quy trình giúp tra được rủi ro khi rà soát quy trình đó"
+                    }
+                    onChange={(v) => patch({ processId: v ?? "" })}
+                  />
+                </div>
+
+                <div data-field="systemId">
+                  <Select
+                    label="Hệ thống CNTT liên quan"
+                    clearable
+                    searchable
+                    placeholder="Không bắt buộc"
+                    options={lk.systemOptions}
+                    value={form.systemId || null}
+                    error={errors.systemId}
+                    hint={
+                      errors.systemId
+                        ? undefined
+                        : "Cần khai nếu rủi ro phát sinh từ hệ thống hoặc dữ liệu"
+                    }
+                    onChange={(v) => patch({ systemId: v ?? "" })}
+                  />
+                </div>
+              </div>
+            </ContentCard>
+          )}
+
+          {/* =================== Bước 2: Nhận diện ==================== */}
+          {stage === "identify" && (
+            <ContentCard className="flex flex-col gap-4">
+              <StepTitle
+                index={2}
                 title="Nhận diện rủi ro"
                 note="Mô tả rủi ro đủ rõ để người khác đọc hiểu mà không cần hỏi lại"
               />
@@ -598,7 +609,6 @@ export default function RiskFormScreen({ code }: { code?: string }) {
               <div data-field="description">
                 <Textarea
                   label="Mô tả rủi ro"
-                  required
                   rows={3}
                   maxLength={1500}
                   showCount
@@ -610,49 +620,44 @@ export default function RiskFormScreen({ code }: { code?: string }) {
               </div>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <Textarea
-                  label="Nguyên nhân"
-                  rows={3}
-                  maxLength={800}
-                  placeholder="Nguyên nhân gốc dẫn tới rủi ro này"
-                  value={form.cause}
-                  onChange={(e) => patch({ cause: e.target.value })}
-                />
-                <Textarea
-                  label="Hệ quả nếu xảy ra"
-                  rows={3}
-                  maxLength={800}
-                  placeholder="Điều gì sẽ xảy ra nếu rủi ro hiện thực hoá"
-                  value={form.consequence}
-                  onChange={(e) => patch({ consequence: e.target.value })}
-                />
+                <div data-field="cause">
+                  <Textarea
+                    label="Nguyên nhân"
+                    rows={3}
+                    maxLength={800}
+                    placeholder="Nguyên nhân gốc dẫn tới rủi ro này"
+                    value={form.cause}
+                    error={errors.cause}
+                    onChange={(e) => patch({ cause: e.target.value })}
+                  />
+                </div>
+                <div data-field="consequence">
+                  <Textarea
+                    label="Hệ quả nếu xảy ra"
+                    rows={3}
+                    maxLength={800}
+                    placeholder="Điều gì sẽ xảy ra nếu rủi ro hiện thực hoá"
+                    value={form.consequence}
+                    error={errors.consequence}
+                    onChange={(e) => patch({ consequence: e.target.value })}
+                  />
+                </div>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div data-field="categoryId">
                   <Select
                     label="Nhóm rủi ro"
                     required
                     searchable
                     placeholder="Chọn nhóm"
-                    options={categoryOptions}
+                    options={lk.riskCategoryOptions}
                     value={form.categoryId || null}
                     error={errors.categoryId}
                     onChange={(v) => patch({ categoryId: v ?? "" })}
                   />
                 </div>
-                <div data-field="unitId">
-                  <Select
-                    label="Đơn vị"
-                    required
-                    searchable
-                    placeholder="Chọn đơn vị"
-                    options={lk.unitOptions}
-                    value={form.unitId || null}
-                    error={errors.unitId}
-                    onChange={(v) => patch({ unitId: v ?? "" })}
-                  />
-                </div>
+
                 <div data-field="ownerId">
                   <Select
                     label="Chủ sở hữu rủi ro"
@@ -665,376 +670,136 @@ export default function RiskFormScreen({ code }: { code?: string }) {
                     hint={
                       errors.ownerId
                         ? undefined
-                        : "Người chịu trách nhiệm theo dõi và báo cáo rủi ro này"
+                        : "Người chịu trách nhiệm theo dõi rủi ro này"
                     }
                     onChange={(v) => patch({ ownerId: v ?? "" })}
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <Select
-                  label="Nguồn rủi ro"
-                  options={SOURCE_OPTIONS}
-                  value={form.source || null}
-                  onChange={(v) => patch({ source: v ?? "Nội bộ" })}
-                />
-                <div className="flex flex-col gap-1 rounded-ctrl bg-surface-alt px-3 py-2.5">
-                  <Checkbox
-                    label="Rủi ro không khẩu vị"
-                    checked={form.isZeroTolerance}
-                    onChange={(e) =>
-                      patch({ isZeroTolerance: e.target.checked })
+                <div data-field="source">
+                  <Select
+                    label="Nguồn rủi ro"
+                    options={SOURCE_OPTIONS}
+                    value={form.source || null}
+                    error={errors.source}
+                    onChange={(v) =>
+                      patch({ source: (v ?? "Nội bộ") as typeof form.source })
                     }
                   />
-                  <span className="pl-6 text-[11px] leading-4 text-text-hint">
-                    Tổ chức không chấp nhận rủi ro này ở bất kỳ mức nào, ví dụ
-                    gian lận hoặc vi phạm pháp luật.
-                  </span>
+                </div>
+
+                <div data-field="identifiedDate">
+                  <DateInput
+                    label="Ngày nhận diện"
+                    required
+                    max={today()}
+                    value={form.identifiedDate}
+                    error={errors.identifiedDate}
+                    hint={
+                      errors.identifiedDate
+                        ? undefined
+                        : "Mốc tính tuổi rủi ro và kỳ rà soát"
+                    }
+                    onChange={(v) => patch({ identifiedDate: v })}
+                  />
                 </div>
               </div>
-            </ContentCard>
-          )}
 
-          {/* ==================== Bước 2 ==================== */}
-          {step === 1 && (
-            <ContentCard className="flex flex-col gap-4">
-              <StepTitle
-                index={2}
-                title="Đánh giá rủi ro cố hữu"
-                note="Chấm điểm khi giả định CHƯA có kiểm soát nào. Đây là mốc để so sánh về sau"
-              />
-
-              <div className="flex gap-2 rounded-ctrl border border-lv-info-border bg-lv-info-bg p-2.5 text-[12px] leading-4 text-lv-info-text">
-                <IconInfoCircle size={16} className="mt-px shrink-0" />
-                <span>
-                  Rủi ro cố hữu là mức rủi ro <b>trước khi</b> tính tới tác dụng
-                  của kiểm soát. Nếu chấm luôn theo tình trạng hiện tại thì mất
-                  mốc so sánh, và không đo được kiểm soát đang mang lại giá trị
-                  gì.
+              <div
+                data-field="isZeroTolerance"
+                className="flex flex-col gap-1 rounded-ctrl bg-surface-alt px-3 py-2.5"
+              >
+                <Checkbox
+                  label="Rủi ro không khoan nhượng"
+                  checked={form.isZeroTolerance}
+                  onChange={(e) => patch({ isZeroTolerance: e.target.checked })}
+                />
+                <span className="pl-6 text-[11px] leading-4 text-text-hint">
+                  Tổ chức không chấp nhận rủi ro này ở bất kỳ mức nào, ví dụ
+                  gian lận hoặc vi phạm pháp luật. Bật cờ này thì ở bước 7{" "}
+                  <b>không chọn được</b> phương án Chấp nhận.
                 </span>
               </div>
-
-              <ScoreSelector
-                criteria={RISK_SCORING_CRITERIA}
-                value={{
-                  likelihood: form.inherentLikelihood,
-                  impact: form.inherentImpact,
-                }}
-                onChange={(v: ScoreValue) =>
-                  patch({
-                    inherentLikelihood: v.likelihood ?? null,
-                    inherentImpact: v.impact ?? null,
-                  })
-                }
-                errors={errors}
-                expandedByDefault={!isEdit}
-                summary={
-                  <ScoreSummary
-                    label="Rủi ro cố hữu"
-                    score={inherentScore}
-                    likelihood={form.inherentLikelihood}
-                    impact={form.inherentImpact}
-                  />
-                }
-              />
-
-              {requiresControl && (
-                <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
-                  <IconAlertTriangle size={16} className="mt-px shrink-0" />
-                  <span>
-                    Điểm cố hữu <b>{inherentScore}</b> thuộc mức{" "}
-                    <b>{levelOfScore(inherentScore ?? 0)}</b>, nên ở bước sau
-                    <b> bắt buộc</b> phải gắn ít nhất 1 kiểm soát đã phê duyệt.
-                  </span>
-                </div>
-              )}
             </ContentCard>
           )}
 
-          {/* ==================== Bước 3 ==================== */}
-          {step === 2 && (
-            <ControlPickerStep
-              controls={controls}
-              value={form.controlIds}
-              noControlAccepted={form.noControlAccepted}
-              requiresControl={requiresControl}
-              error={errors.controls}
-              unitName={(id) => lk.unitName(id)}
-              onChange={(ids) => patch({ controlIds: ids })}
-              onToggleAccept={(v) => patch({ noControlAccepted: v })}
+          {/* ============ Bước 3 tới 8: chờ nhịp sau ============ */}
+          {stage === "inherent" && (
+            <StepPlaceholder
+              index={3}
+              title="Đánh giá rủi ro vốn có"
+              note="Chấm điểm khi giả định chưa có kiểm soát nào, kèm ước lượng tổn thất"
+              batch="D2b"
             />
           )}
 
-          {/* ==================== Bước 4 ==================== */}
-          {step === 3 && (
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
-              {/* Cột căn cứ, chỉ đọc */}
-              <ContentCard className="flex flex-col gap-3 xl:col-span-2">
-                <p className="text-[13px] font-semibold text-text-primary">
-                  Căn cứ đánh giá
-                </p>
-
-                <div className="flex flex-col gap-1.5 rounded-ctrl bg-surface-alt p-2.5">
-                  <p className="text-[12px] text-text-secondary">
-                    Điểm cố hữu đã chấm
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <RiskBadge
-                      level={levelOfScore(inherentScore ?? 0)}
-                      score={inherentScore ?? 0}
-                    />
-                    <span className="text-[12px] text-text-secondary">
-                      Khả năng {form.inherentLikelihood} × Ảnh hưởng{" "}
-                      {form.inherentImpact}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <p className="text-[12px] text-text-secondary">
-                    Kiểm soát đang phủ rủi ro này ({activePicked.length})
-                  </p>
-                  {activePicked.length === 0 ? (
-                    <p className="rounded-ctrl bg-surface-alt p-2.5 text-[12px] text-text-hint">
-                      Không có kiểm soát nào. Đã tuyên bố chấp nhận rủi ro.
-                    </p>
-                  ) : (
-                    <ul className="flex flex-col gap-1.5">
-                      {activePicked.map((c) => (
-                        <li
-                          key={c.id}
-                          className="flex flex-col gap-0.5 rounded-ctrl border border-border-light p-2"
-                        >
-                          <span className="flex min-w-0 items-center gap-1.5">
-                            <span className="truncate text-[12px] font-medium text-brand">
-                              {c.code}
-                            </span>
-                            {c.isKeyControl && (
-                              <Badge tone="brand" size="sm">
-                                Trọng yếu
-                              </Badge>
-                            )}
-                          </span>
-                          <span className="truncate text-[12px] text-text-primary">
-                            {c.name}
-                          </span>
-                          <span className="text-[11px] text-text-secondary">
-                            {c.type} · {c.frequency} · hiệu quả{" "}
-                            <b>{overallEffectivenessOf(c)}</b>
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                <p className="flex items-start gap-1.5 text-[11px] leading-4 text-text-hint">
-                  <IconRadar size={13} className="mt-px shrink-0" />
-                  Hệ thống <b>không tự tính</b> điểm còn lại. Anh tự đánh giá
-                  dựa trên tác dụng thực tế của các kiểm soát trên.
-                </p>
-              </ContentCard>
-
-              {/* Cột chấm điểm */}
-              <ContentCard className="flex flex-col gap-4 xl:col-span-3">
-                <StepTitle
-                  index={4}
-                  title="Đánh giá rủi ro còn lại"
-                  note="Chấm lại điểm sau khi đã tính tới tác dụng của kiểm soát hiện có"
-                />
-
-                <ScoreSelector
-                  criteria={RISK_SCORING_CRITERIA}
-                  value={{
-                    likelihood: form.residualLikelihood,
-                    impact: form.residualImpact,
-                  }}
-                  onChange={(v: ScoreValue) =>
-                    patch({
-                      residualLikelihood: v.likelihood ?? null,
-                      residualImpact: v.impact ?? null,
-                    })
-                  }
-                  compareValue={{
-                    likelihood: form.inherentLikelihood,
-                    impact: form.inherentImpact,
-                  }}
-                  compareLabel="Cố hữu"
-                  maxValue={{
-                    likelihood: form.inherentLikelihood,
-                    impact: form.inherentImpact,
-                  }}
-                  errors={errors}
-                  summary={
-                    <ScoreSummary
-                      label="Rủi ro còn lại"
-                      score={residualScore}
-                      likelihood={form.residualLikelihood}
-                      impact={form.residualImpact}
-                      compareScore={inherentScore}
-                    />
-                  }
-                />
-
-                {residualScore !== null &&
-                  inherentScore !== null &&
-                  residualScore === inherentScore &&
-                  activePicked.length > 0 && (
-                    <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
-                      <IconAlertTriangle size={16} className="mt-px shrink-0" />
-                      <span>
-                        Điểm còn lại <b>giữ nguyên</b> như điểm cố hữu dù đã gắn{" "}
-                        {activePicked.length} kiểm soát. Nếu đúng như vậy thì
-                        nên nêu rõ trong luận cứ, vì đây là dấu hiệu kiểm soát
-                        hiện có chưa mang lại tác dụng thực tế.
-                      </span>
-                    </div>
-                  )}
-
-                <Textarea
-                  label="Luận cứ đánh giá"
-                  rows={3}
-                  maxLength={800}
-                  showCount
-                  placeholder="Vì sao hạ xuống mức này, kiểm soát nào tạo ra tác dụng đó, còn khe hở nào"
-                  value={form.residualRationale}
-                  hint="Không bắt buộc, nhưng rất cần khi hạ nhiều bậc vì kiểm toán nội bộ sẽ đọc lại"
-                  onChange={(e) => patch({ residualRationale: e.target.value })}
-                />
-              </ContentCard>
-            </div>
+          {stage === "controls" && (
+            <StepPlaceholder
+              index={4}
+              title="Chọn kiểm soát"
+              note="Gắn kiểm soát đang bảo vệ rủi ro này từ thư viện kiểm soát"
+              batch="D2b"
+              extraNote={
+                controlStageDone
+                  ? undefined
+                  : "Bước 6 đang bị khoá cho tới khi bước này hoàn tất."
+              }
+            />
           )}
 
-          {/* ==================== Bước 5 ==================== */}
-          {step === 4 && (
-            <div className="flex flex-col gap-4">
-              <ContentCard className="flex flex-col gap-4">
-                <StepTitle
-                  index={5}
-                  title="Ứng phó và theo dõi"
-                  note="Quyết định sẽ làm gì với mức rủi ro còn lại và khi nào đánh giá lại"
-                />
+          {stage === "weakness" && (
+            <StepPlaceholder
+              index={5}
+              title="Nghi ngờ điểm yếu"
+              note="Bước tuỳ chọn, ghi nhận sơ bộ điểm yếu phát hiện khi rà kiểm soát"
+              batch="D3"
+            />
+          )}
 
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  <div data-field="treatmentStrategy">
-                    <Select
-                      label="Chiến lược ứng phó"
-                      required
-                      options={TREATMENT_OPTIONS}
-                      value={form.treatmentStrategy || null}
-                      error={errors.treatmentStrategy}
-                      onChange={(v) => patch({ treatmentStrategy: v ?? "" })}
-                    />
-                  </div>
-                  <div data-field="nextReviewDate">
-                    <DateInput
-                      label="Kỳ đánh giá lại"
-                      required
-                      min={today()}
-                      value={form.nextReviewDate}
-                      error={errors.nextReviewDate}
-                      hint={
-                        errors.nextReviewDate
-                          ? undefined
-                          : "Quá ngày này mà chưa đánh giá lại, hệ thống sẽ hiện nhãn nhắc"
-                      }
-                      onChange={(v) => patch({ nextReviewDate: v })}
-                    />
-                  </div>
-                </div>
+          {stage === "residual" && (
+            <StepPlaceholder
+              index={6}
+              title="Đánh giá rủi ro còn lại"
+              note="Hệ thống gợi ý điểm từ tập kiểm soát, người dùng sửa tự do"
+              batch="D2b"
+            />
+          )}
 
-                {form.treatmentStrategy === "Chấp nhận" &&
-                  !!residualScore &&
-                  residualScore > 9 && (
-                    <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
-                      <IconAlertTriangle size={16} className="mt-px shrink-0" />
-                      <span>
-                        Chọn <b>Chấp nhận</b> với rủi ro còn lại mức{" "}
-                        <b>{levelOfScore(residualScore)}</b> là quyết định cần
-                        cấp có thẩm quyền phê duyệt. Nên ghi rõ căn cứ trong
-                        luận cứ đánh giá ở bước trước.
-                      </span>
-                    </div>
-                  )}
-              </ContentCard>
+          {stage === "treat" && (
+            <StepPlaceholder
+              index={7}
+              title="Phương án xử lý"
+              note="Chiến lược ứng phó, định hướng xử lý và kỳ rà soát lại"
+              batch="D2b"
+            />
+          )}
 
-              {/* -------------------- Xem lại -------------------- */}
-              <ContentCard className="flex flex-col gap-3">
-                <p className="text-[13px] font-semibold text-text-primary">
-                  Xem lại trước khi lưu
-                </p>
-
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  <ReviewRow label="Tên rủi ro" value={form.name} />
-                  <ReviewRow
-                    label="Nhóm và đơn vị"
-                    value={`${lk.categoryName(form.categoryId)} · ${lk.unitName(form.unitId)}`}
-                  />
-                  <ReviewRow
-                    label="Chủ sở hữu"
-                    value={lk.employeeName(form.ownerId, "chưa gán")}
-                  />
-                  <ReviewRow
-                    label="Kiểm soát đã gắn"
-                    value={
-                      activePicked.length > 0
-                        ? `${activePicked.length} kiểm soát`
-                        : "Không có, đã chấp nhận rủi ro"
-                    }
-                  />
-                </div>
-
-                <div className="flex flex-wrap items-center gap-4 rounded-ctrl bg-surface-alt p-3">
-                  <span className="flex flex-col gap-1">
-                    <span className="text-[12px] text-text-secondary">
-                      Rủi ro cố hữu
-                    </span>
-                    <RiskBadge
-                      level={levelOfScore(inherentScore ?? 0)}
-                      score={inherentScore ?? 0}
-                    />
-                  </span>
-                  <IconArrowRight size={18} className="text-icon-neutral" />
-                  <span className="flex flex-col gap-1">
-                    <span className="text-[12px] text-text-secondary">
-                      Rủi ro còn lại
-                    </span>
-                    <RiskBadge
-                      level={levelOfScore(residualScore ?? 0)}
-                      score={residualScore ?? 0}
-                    />
-                  </span>
-                  {form.isZeroTolerance && (
-                    <Badge tone="danger" dot>
-                      Không khẩu vị
-                    </Badge>
-                  )}
-                  <span className="ml-auto text-[12px] text-text-secondary">
-                    Chấm ngày <b className="text-text-primary">{today()}</b> bởi{" "}
-                    <b className="text-text-primary">
-                      {lk.employeeName(form.ownerId, user.name)}
-                    </b>
-                  </span>
-                </div>
-              </ContentCard>
-            </div>
+          {stage === "review" && (
+            <StepPlaceholder
+              index={8}
+              title="Rà soát và gửi"
+              note="Xem lại toàn bộ hồ sơ, liệt kê mọi nội dung còn thiếu theo từng bước"
+              batch="D2b"
+            />
           )}
         </div>
       </PageBody>
 
-      {/* ===================== Thanh hành động ===================== */}
+      {/* ======================= Thanh hành động ======================= */}
       <FooterActionBar
         left={
           <span className="flex flex-wrap items-center gap-2 text-[12px] text-text-secondary">
             <Badge tone="neutral" dot>
-              Bước {step + 1} / 5
+              Bước {stageIndex + 1} / {totalStages}
             </Badge>
-            <span>{RISK_STAGES[step].label}</span>
-            {step3Locked && step < 3 && (
+            <span>{currentMeta.label}</span>
+            {currentMeta.optional && (
+              <span className="text-text-hint">có thể bỏ qua</span>
+            )}
+            {!controlStageDone && stageIndex < stageIndexOf("residual") && (
               <span className="inline-flex items-center gap-1 text-lv-medium-text">
                 <IconLock size={13} />
-                Bước 4 mở sau khi gắn kiểm soát
+                Bước 6 mở sau khi gắn kiểm soát
               </span>
             )}
           </span>
@@ -1050,21 +815,23 @@ export default function RiskFormScreen({ code }: { code?: string }) {
             Lưu nháp
           </Button>
         )}
+
         <Button
           variant="secondary"
           icon={<IconArrowLeft size={16} />}
-          disabled={step === 0 || saving}
-          onClick={() => setStep((s) => Math.max(0, s - 1))}
+          disabled={stageIndex === 0 || saving}
+          onClick={back}
         >
           Quay lại
         </Button>
-        {step < 4 ? (
+
+        {stage !== "review" ? (
           <Button
             variant="primary"
             icon={<IconArrowRight size={16} />}
             onClick={next}
           >
-            Bước tiếp theo
+            {currentMeta.optional ? "Bỏ qua và tiếp tục" : "Bước tiếp theo"}
           </Button>
         ) : (
           <Button
@@ -1095,49 +862,51 @@ export default function RiskFormScreen({ code }: { code?: string }) {
 }
 
 /* ================================================================== */
-/* Bước 3: chọn kiểm soát từ thư viện                                  */
+/* Ô chọn nhiều mục tiêu                                               */
 /* ================================================================== */
 
-function ControlPickerStep({
-  controls,
+interface LookupOptionLite {
+  value: string;
+  label: string;
+  description?: string;
+}
+
+/**
+ * Chọn nhiều mục tiêu bằng danh sách checkbox có tìm kiếm.
+ *
+ * Cố tình KHÔNG dùng Select đa chọn, vì component Select của dự án đang
+ * nhận value là một chuỗi. Dựng bằng Checkbox và SearchInput là hai
+ * component đã dùng ở nhiều màn hình nên chắc chắn có sẵn.
+ */
+function ObjectivePicker({
+  options,
   value,
-  noControlAccepted,
-  requiresControl,
   error,
-  unitName,
   onChange,
-  onToggleAccept,
 }: {
-  controls: ControlRecord[];
+  options: LookupOptionLite[];
   value: string[];
-  noControlAccepted: boolean;
-  requiresControl: boolean;
   error?: string;
-  unitName: (id?: string) => string;
   onChange: (ids: string[]) => void;
-  onToggleAccept: (v: boolean) => void;
 }) {
   const [keyword, setKeyword] = useState("");
-  const [onlyKey, setOnlyKey] = useState(false);
 
   const rows = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
-    return controls
-      .filter((c) => {
-        if (onlyKey && !c.isKeyControl) return false;
-        if (!kw) return true;
-        return `${c.code} ${c.name ?? ""} ${c.type ?? ""}`
-          .toLowerCase()
-          .includes(kw);
-      })
-      .slice()
-      .sort((a, b) => {
-        const pa = value.includes(a.id) ? 0 : 1;
-        const pb = value.includes(b.id) ? 0 : 1;
-        if (pa !== pb) return pa - pb;
-        return a.code.localeCompare(b.code);
-      });
-  }, [controls, keyword, onlyKey, value]);
+    const list = kw
+      ? options.filter((o) =>
+          `${o.label} ${o.description ?? ""}`.toLowerCase().includes(kw),
+        )
+      : options;
+
+    /* Mục đã chọn luôn lên đầu để người dùng thấy ngay mình đã chọn gì */
+    return [...list].sort((a, b) => {
+      const pa = value.includes(a.value) ? 0 : 1;
+      const pb = value.includes(b.value) ? 0 : 1;
+      if (pa !== pb) return pa - pb;
+      return a.label.localeCompare(b.label);
+    });
+  }, [options, keyword, value]);
 
   function toggle(id: string) {
     onChange(
@@ -1145,76 +914,51 @@ function ControlPickerStep({
     );
   }
 
-  const picked = controls.filter((c) => value.includes(c.id));
-  const pendingCount = picked.filter((c) =>
-    NOT_YET_ACTIVE.has(c.status ?? ""),
-  ).length;
-
   return (
-    <ContentCard className="flex flex-col gap-4">
-      <StepTitle
-        index={3}
-        title="Gắn kiểm soát từ thư viện"
-        note="Chọn các kiểm soát đang bảo vệ rủi ro này. Đây là căn cứ để chấm điểm còn lại ở bước sau"
-      />
-
+    <section
+      data-field="objectiveIds"
+      className={cn(
+        "flex flex-col gap-2.5 rounded-card border p-3",
+        error
+          ? "border-lv-critical-border bg-lv-critical-bg/30"
+          : "border-border-light",
+      )}
+    >
       <div className="flex flex-wrap items-center gap-2">
-        <SearchInput
-          value={keyword}
-          onChange={setKeyword}
-          placeholder="Tìm theo mã, tên kiểm soát"
-          width={320}
-        />
-        <Checkbox
-          label="Chỉ kiểm soát trọng yếu"
-          checked={onlyKey}
-          onChange={(e) => setOnlyKey(e.target.checked)}
-        />
+        <IconTarget size={16} className="text-brand" />
+        <span className="text-[13px] font-semibold text-text-primary">
+          Mục tiêu bị đe doạ <span className="text-danger">*</span>
+        </span>
         <span className="ml-auto text-[12px] text-text-secondary">
-          Đã chọn <b className="text-text-primary">{value.length}</b> kiểm soát
+          Đã chọn <b className="text-text-primary">{value.length}</b>
         </span>
       </div>
 
-      {error && (
-        <div
-          data-field="controls"
-          className="flex gap-2 rounded-ctrl border border-lv-critical-border bg-lv-critical-bg p-2.5 text-[12px] leading-4 text-lv-critical-text"
-        >
-          <IconShieldX size={16} className="mt-px shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
+      <SearchInput
+        value={keyword}
+        onChange={setKeyword}
+        placeholder="Tìm theo tên mục tiêu"
+        width={340}
+      />
 
-      {pendingCount > 0 && (
-        <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
-          <IconAlertTriangle size={16} className="mt-px shrink-0" />
-          <span>
-            Có <b>{pendingCount}</b> kiểm soát đang ở trạng thái Nháp hoặc Chờ
-            duyệt. Những kiểm soát này <b>chưa được tính</b> là đang bảo vệ rủi
-            ro, vì chưa phê duyệt thì chưa vận hành.
-          </span>
-        </div>
-      )}
-
-      <div className="flex max-h-[420px] flex-col gap-1.5 overflow-y-auto rounded-ctrl border border-border-light p-2">
+      <div className="flex max-h-[240px] flex-col gap-1 overflow-y-auto rounded-ctrl border border-border-light p-2">
         {rows.length === 0 ? (
-          <p className="px-2 py-6 text-center text-[12px] text-text-hint">
-            Không có kiểm soát phù hợp. Thử xoá từ khoá tìm kiếm.
+          <p className="px-2 py-5 text-center text-[12px] text-text-hint">
+            Không có mục tiêu phù hợp. Thử xoá từ khoá tìm kiếm.
           </p>
         ) : (
-          rows.map((c) => {
-            const active = value.includes(c.id);
-            const pending = NOT_YET_ACTIVE.has(c.status ?? "");
+          rows.map((o) => {
+            const active = value.includes(o.value);
             return (
               <button
-                key={c.id}
+                key={o.value}
                 type="button"
-                onClick={() => toggle(c.id)}
+                onClick={() => toggle(o.value)}
                 className={cn(
                   "flex items-start gap-2.5 rounded-ctrl border px-2.5 py-2 text-left transition-all",
                   active
                     ? "border-brand bg-brand-light"
-                    : "border-border-light bg-white hover:bg-[#FAFAFA]",
+                    : "border-transparent bg-white hover:bg-[#FAFAFA]",
                 )}
               >
                 <span
@@ -1229,65 +973,28 @@ function ControlPickerStep({
                 </span>
 
                 <span className="min-w-0 flex-1">
-                  <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-                    <span className="text-[12px] font-medium text-brand">
-                      {c.code}
-                    </span>
-                    <span className="truncate text-[13px] text-text-primary">
-                      {c.name}
-                    </span>
-                    {c.isKeyControl && (
-                      <Badge tone="brand" size="sm">
-                        Trọng yếu
-                      </Badge>
-                    )}
-                    {pending && (
-                      <Tooltip content="Chưa phê duyệt nên chưa tính là đang bảo vệ rủi ro">
-                        <Badge tone="neutral" size="sm">
-                          {c.status}
-                        </Badge>
-                      </Tooltip>
-                    )}
+                  <span className="block truncate text-[13px] text-text-primary">
+                    {o.label}
                   </span>
-                  <span className="block truncate text-[12px] text-text-secondary">
-                    {c.type} · {c.frequency} · {unitName(c.unitId)} · hiệu quả{" "}
-                    {overallEffectivenessOf(c)}
-                  </span>
-                </span>
-
-                <IconShieldCheck
-                  size={16}
-                  className={cn(
-                    "mt-0.5 shrink-0",
-                    active ? "text-brand" : "text-icon-neutral",
+                  {o.description && (
+                    <span className="block truncate text-[11px] text-text-hint">
+                      {o.description}
+                    </span>
                   )}
-                />
+                </span>
               </button>
             );
           })
         )}
       </div>
 
-      {/* --------- Tuyên bố chấp nhận, chỉ cho rủi ro thấp --------- */}
-      <div
-        className={cn(
-          "flex flex-col gap-1 rounded-ctrl px-3 py-2.5",
-          requiresControl ? "bg-surface-alt opacity-60" : "bg-surface-alt",
-        )}
-      >
-        <Checkbox
-          label="Không áp dụng kiểm soát nào, chấp nhận rủi ro ở mức hiện tại"
-          checked={noControlAccepted}
-          disabled={requiresControl}
-          onChange={(e) => onToggleAccept(e.target.checked)}
-        />
-        <span className="pl-6 text-[11px] leading-4 text-text-hint">
-          {requiresControl
-            ? "Không dùng được vì rủi ro cố hữu đang ở mức Cao trở lên, bắt buộc phải có kiểm soát."
-            : "Dùng khi rủi ro ở mức thấp và chi phí kiểm soát lớn hơn lợi ích. Hồ sơ vẫn ghi nhận là quyết định có chủ đích, không phải bỏ trống."}
-        </span>
-      </div>
-    </ContentCard>
+      {error && (
+        <p className="flex items-start gap-1.5 text-[12px] leading-4 text-danger">
+          <IconAlertTriangle size={14} className="mt-px shrink-0" />
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -1317,51 +1024,46 @@ function StepTitle({
   );
 }
 
-function ScoreSummary({
-  label,
-  score,
-  likelihood,
-  impact,
-  compareScore,
+/**
+ * Ô giữ chỗ cho các bước sẽ dựng ở nhịp sau.
+ *
+ * Có ô này thì build sạch ngay sau D2a và luồng điều hướng 8 bước thử
+ * được đầy đủ, thay vì phải chờ tới khi mọi bước hoàn thiện.
+ */
+function StepPlaceholder({
+  index,
+  title,
+  note,
+  batch,
+  extraNote,
 }: {
-  label: string;
-  score: number | null;
-  likelihood: number | null;
-  impact: number | null;
-  compareScore?: number | null;
+  index: number;
+  title: string;
+  note: string;
+  batch: string;
+  extraNote?: string;
 }) {
-  if (!score)
-    return (
-      <div className="flex items-center gap-2 rounded-ctrl bg-surface-alt p-3 text-[12px] text-text-hint">
-        <IconRadar size={16} />
-        Chấm đủ 2 dòng để hệ thống hiện điểm và mức rủi ro
+  return (
+    <ContentCard className="flex flex-col gap-4">
+      <StepTitle index={index} title={title} note={note} />
+
+      <div className="flex flex-col items-center gap-2 rounded-card border border-dashed border-border-neutral bg-surface-alt px-4 py-10 text-center">
+        <IconTools size={26} className="text-icon-neutral" />
+        <p className="text-[13px] font-medium text-text-primary">
+          Bước này đang được dựng ở nhịp {batch}
+        </p>
+        <p className="max-w-[520px] text-[12px] leading-4 text-text-secondary">
+          Luồng điều hướng và cơ chế kiểm tra đã hoạt động đầy đủ, anh bấm qua
+          lại giữa các bước để thử được ngay. Phần nhập liệu của bước này sẽ
+          thay thế khối này.
+        </p>
+        {extraNote && (
+          <p className="mt-1 inline-flex items-center gap-1.5 text-[12px] font-medium text-lv-medium-text">
+            <IconAlertTriangle size={14} />
+            {extraNote}
+          </p>
+        )}
       </div>
-    );
-
-  const diff = compareScore ? compareScore - score : 0;
-
-  return (
-    <div className="flex flex-wrap items-center gap-3 rounded-ctrl bg-surface-alt p-3">
-      <span className="text-[12px] text-text-secondary">{label}</span>
-      <RiskBadge level={levelOfScore(score)} score={score} />
-      <span className="text-[12px] text-text-secondary">
-        Khả năng {likelihood} × Ảnh hưởng {impact} = <b>{score} điểm</b>
-      </span>
-      {diff > 0 && (
-        <span className="inline-flex items-center gap-1 text-[12px] font-medium text-lv-low-text">
-          <IconCircleCheck size={14} />
-          Giảm {diff} điểm so với cố hữu
-        </span>
-      )}
-    </div>
-  );
-}
-
-function ReviewRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[12px] text-text-secondary">{label}</span>
-      <span className="text-[13px] text-text-primary">{value || "--"}</span>
-    </div>
+    </ContentCard>
   );
 }
