@@ -27,9 +27,13 @@ export interface RiskLifecycleInput {
   residualAssessedAt?: string;
   residualRationale?: string;
   controlsChangedAt?: string;
-  treatmentStrategy?: string;
-  nextReviewDate?: string;
+    /* Tên trường khớp đúng riskSchema, đừng đổi tuỳ ý */
+  treatment?: string;
+  treatmentNote?: string;
+  reviewDate?: string;
+  objectiveIds?: string[];
   noControlAccepted?: boolean;
+
 }
 
 /** Cấu trúc trùng khớp với MissingItem của MissingInfoCell */
@@ -118,9 +122,18 @@ export function isResidualDone(r: RiskLifecycleInput): boolean {
   return isResidualAssessed(r) && !isResidualStale(r);
 }
 
+/**
+ * Bước ứng phó hoàn tất khi có CẢ phương án và mô tả định hướng.
+ * Schema bắt buộc treatmentNote với mọi phương án khác Chấp nhận, nên
+ * chỉ có phương án mà thiếu mô tả thì hồ sơ vẫn chưa đủ.
+ */
 export function isTreatDone(r: RiskLifecycleInput): boolean {
-  return !!(r.treatmentStrategy && r.treatmentStrategy.trim());
+  const t = (r.treatment ?? "").trim();
+  if (!t) return false;
+  if (t === "Chấp nhận") return true;
+  return !!(r.treatmentNote && r.treatmentNote.trim());
 }
+
 
 /** Điểm cố hữu từ mức Cao trở lên thì bắt buộc phải có kiểm soát */
 export function requiresControl(r: RiskLifecycleInput): boolean {
@@ -214,7 +227,8 @@ export function riskStepViews(
 /* ------------------------------------------------------------------ */
 
 export function isReviewOverdue(r: RiskLifecycleInput): boolean {
-  const due = (r.nextReviewDate ?? "").trim();
+    const due = (r.reviewDate ?? "").trim();
+
   if (!due) return false;
   const today = new Date().toISOString().slice(0, 10);
   return due < today && !isRiskClosed(r);
@@ -230,6 +244,14 @@ export function riskMissingInfo(
 ): RiskMissingItem[] {
   const out: RiskMissingItem[] = [];
   if (isRiskClosed(r)) return out;
+    if (!Array.isArray(r.objectiveIds) || r.objectiveIds.length === 0)
+    out.push({
+      label: "Chưa gắn mục tiêu",
+      tone: "danger",
+      hint: "Rủi ro phải gắn với ít nhất 1 mục tiêu, đây là quy tắc nghiệp vụ cốt lõi. Không gắn thì không biết rủi ro này đe doạ điều gì",
+      blocking: true,
+    });
+
 
   if (!isIdentifyDone(r))
     out.push({

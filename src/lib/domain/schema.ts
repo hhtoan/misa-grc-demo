@@ -158,6 +158,14 @@ export const riskSchema = baseEntity.extend({
   residualLikelihood: score,
   residualImpact: score,
 
+    /**
+   * Tuyên bố chấp nhận rủi ro mà không áp dụng kiểm soát nào.
+   * Đây là quyết định CÓ CHỦ ĐÍCH, khác hoàn toàn với việc bỏ trống
+   * chưa gắn kiểm soát. Chỉ dùng được với rủi ro cố hữu mức thấp.
+   */
+  noControlAccepted: z.boolean().default(false),
+
+
   treatment: z.enum(RISK_TREATMENTS).default("Giảm thiểu"),
   treatmentNote: z.string().default(""),
   /** Rủi ro không khoan nhượng: cấm chọn phương án Chấp nhận */

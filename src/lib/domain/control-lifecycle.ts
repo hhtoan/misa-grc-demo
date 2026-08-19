@@ -206,9 +206,6 @@ export function controlStepViews(c: ControlLifecycleInput): ControlStepView[] {
 
     let warning: string | undefined;
 
-    if (s.key === "design" && !hasRiskCoverage(c))
-      warning = "Chưa gắn rủi ro nào";
-
     if (s.key === "test" && isTestOverdue(c)) warning = "Quá hạn kiểm tra";
 
     if (s.key === "conclude" && needsRedesign(c))
@@ -346,11 +343,6 @@ export const CONTROL_QUICK_FILTERS: QuickFilterOption[] = [
     label: "Quá hạn kiểm tra",
     hint: "Đã qua ngày kiểm tra theo kế hoạch",
   },
-  {
-    key: "no-risk",
-    label: "Chưa gắn rủi ro",
-    hint: "Không biết kiểm soát này đang bảo vệ điều gì",
-  },
 ];
 
 /** Một kiểm soát có khớp quick filter đang chọn không */
@@ -365,8 +357,6 @@ export function matchControlQuickFilter(
   if (key === "needs-enforcement") return needsEnforcement(c);
   if (key === "never-assessed") return isNeverAssessed(c) && isControlActive(c);
   if (key === "test-overdue") return isTestOverdue(c);
-  if (key === "no-risk") return !hasRiskCoverage(c) && !isControlRetired(c);
-
   return controlStageOf(c) === key;
 }
 
@@ -427,15 +417,6 @@ export function suggestControlAction(c: ControlLifecycleInput): ControlAction {
       title: "Trình phê duyệt thiết kế",
       detail:
         "Chưa phê duyệt thì kiểm soát chưa được tính là đang bảo vệ rủi ro nào.",
-      tone: "warning",
-    };
-
-  if (!hasRiskCoverage(c))
-    return {
-      kind: "link-risk",
-      title: "Gắn rủi ro được kiểm soát này bảo vệ",
-      detail:
-        "Chưa gắn rủi ro thì kiểm soát không xuất hiện khi người dùng chấm điểm rủi ro còn lại.",
       tone: "warning",
     };
 

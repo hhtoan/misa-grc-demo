@@ -13,6 +13,9 @@ import {
 import type { ControlStatus, ControlTestResult } from "./enums";
 import { toInputDate } from "@/lib/format";
 
+import { CONTROL_TEST_RESULTS } from "./enums";
+
+
 export type ControlFormValue = z.infer<typeof controlFormSchema>;
 
 /* ==================================================================
@@ -628,28 +631,24 @@ export function effectivenessNarrative(c: ControlEffectivenessInput): string {
    đúng cái sai mà CRO đã chỉ ra ở phần điểm rủi ro còn lại.
    ================================================================== */
 
-/** Tuỳ chọn cho Select, dùng chung ở form kiểm soát và form kết quả */
-export const EFFECTIVENESS_OPTIONS: {
-  value: EffectivenessValue;
-  label: string;
-  description: string;
-}[] = [
-  {
-    value: "Hiệu quả",
-    label: "Hiệu quả",
-    description: "Đạt yêu cầu, không phát hiện khe hở đáng kể",
-  },
-  {
-    value: "Hiệu quả một phần",
-    label: "Hiệu quả một phần",
-    description: "Còn khe hở hoặc thực hiện chưa đều, cần cải thiện",
-  },
-  {
-    value: "Không hiệu quả",
-    label: "Không hiệu quả",
-    description: "Không đạt yêu cầu, phải xử lý ngay",
-  },
-];
+/**
+ * Mô tả từng mức, tách riêng khỏi danh sách giá trị.
+ * Danh sách giá trị lấy từ CONTROL_TEST_RESULTS trong enums.ts, nên
+ * nếu enum đổi thì form tự theo, không lệch.
+ */
+const EFFECTIVENESS_DESCRIPTION: Record<string, string> = {
+  "Hiệu quả": "Đạt yêu cầu, không phát hiện khe hở đáng kể",
+  "Hiệu quả một phần":
+    "Còn khe hở hoặc thực hiện chưa đều, cần cải thiện",
+  "Không hiệu quả": "Không đạt yêu cầu, phải xử lý ngay",
+};
+
+export const EFFECTIVENESS_OPTIONS = CONTROL_TEST_RESULTS.map((v) => ({
+  value: v,
+  label: v,
+  description: EFFECTIVENESS_DESCRIPTION[v] ?? "",
+}));
+
 
 /** Câu hỏi nghiệp vụ của từng chiều, dùng làm hint trên form */
 export const DESIGN_QUESTION =

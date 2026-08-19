@@ -162,6 +162,7 @@ export function emptyRiskForm(
     treatmentNote: "",
     isZeroTolerance: false,
     isKeyRisk: false,
+    noControlAccepted: false,
     identifiedDate: toInputDate(new Date()),
     reviewDate: "",
     status: "Nháp",
@@ -180,7 +181,9 @@ export function riskToForm(r: Risk): RiskFormValue {
     cause: r.cause,
     consequence: r.consequence,
     categoryId: r.categoryId,
-    objectiveIds: [...r.objectiveIds],
+    /* Phòng vệ cho bản ghi cũ thiếu trường mảng, spread undefined sẽ
+       ném TypeError và làm trắng cả trang form sửa */
+    objectiveIds: [...(r.objectiveIds ?? [])],
     unitId: r.unitId,
     ownerId: r.ownerId,
     processId: r.processId,
@@ -194,12 +197,13 @@ export function riskToForm(r: Risk): RiskFormValue {
     treatmentNote: r.treatmentNote,
     isZeroTolerance: r.isZeroTolerance,
     isKeyRisk: r.isKeyRisk,
+    noControlAccepted: r.noControlAccepted ?? false,
     identifiedDate: r.identifiedDate,
     reviewDate: r.reviewDate,
     status: r.status,
     statusNote: r.statusNote,
     estimatedLoss: r.estimatedLoss,
-    tags: [...r.tags],
+    tags: [...(r.tags ?? [])],
   };
 }
 
@@ -306,11 +310,16 @@ export function controlCoverageCount(
   ).length;
 }
 
-/** Đã từng chấm điểm còn lại chưa */
+/**
+ * Đã từng chấm điểm rủi ro còn lại chưa.
+ *
+ * CHỈ đọc residualAssessedAt, không suy từ điểm. Lý do: schema khai
+ * residualLikelihood và residualImpact là score bắt buộc 1 tới 5, nên
+ * chúng LUÔN có giá trị kể cả khi người dùng chưa chấm gì. Nhánh suy
+ * từ điểm ở bản trước khiến hàm này luôn trả về true và mất ý nghĩa.
+ */
 export function isResidualAssessed(risk: RiskAssessmentInput): boolean {
-  if (risk.residualAssessedAt && risk.residualAssessedAt.trim()) return true;
-  /* Dữ liệu cũ chưa có dấu vết, suy từ chính điểm đã chấm */
-  return !!risk.residualLikelihood && !!risk.residualImpact;
+  return !!(risk.residualAssessedAt && risk.residualAssessedAt.trim());
 }
 
 /**
@@ -354,4 +363,61 @@ export function residualStateHint(state: ResidualState): string {
     default:
       return "Điểm còn lại đã được chấm và vẫn khớp với tập kiểm soát hiện tại";
   }
+}
+
+/* ==================================================================
+   Vá bản ghi rủi ro thiếu trường.
+
+   Bản ghi tạo bằng wizard trước D1a thiếu objectiveIds, tags,
+   noControlAccepted và ghi sai tên treatment, reviewDate. Hàm này đưa
+   chúng về hình dạng hợp lệ để riskToForm không crash.
+
+   Chạy một lần khi khởi động app, hoặc gọi tay từ màn quản trị.
+   ================================================================== */
+
+interface LooseRisk {
+  id: string;
+  objectiveIds?: string[];
+  tags?: string[];
+  noControlAccepted?: boolean;
+  treatment?: string;
+  treatmentNote?: string;
+  identifiedDate?: string;
+  /** Tên sai do wizard cũ ghi ra, đọc để chuyển sang tên đúng */
+  treatmentStrategy?: string;
+  nextReviewDate?: string;
+  reviewDate?: string;
+}
+
+export interface RiskRepairPatch {
+  objectiveIds?: string[];
+  tags?: string[];
+  noControlAccepted?: boolean;
+  treatment?: string;
+  treatmentNote?: string;
+  reviewDate?: string;
+  identifiedDate?: string;
+}
+
+/** Trả về patch cần áp, hoặc null nếu bản ghi đã hợp lệ */
+export function repairRiskRecord(r: LooseRisk): RiskRepairPatch | null {
+  const patch: RiskRepairPatch = {};
+
+  if (!Array.isArray(r.objectiveIds)) patch.objectiveIds = [];
+  if (!Array.isArray(r.tags)) patch.tags = [];
+  if (typeof r.noControlAccepted !== "boolean") patch.noControlAccepted = false;
+
+  /* Chuyển tên sai sang tên đúng, chỉ khi tên đúng đang trống */
+  if (!r.treatment && r.treatmentStrategy)
+    patch.treatment = r.treatmentStrategy;
+  if (!r.treatment && !r.treatmentStrategy) patch.treatment = "Giảm thiểu";
+
+  if (!r.treatmentNote) patch.treatmentNote = "Chuyển đổi dữ liệu, chưa mô tả";
+
+  if (!r.reviewDate && r.nextReviewDate) patch.reviewDate = r.nextReviewDate;
+
+  if (!r.identifiedDate)
+    patch.identifiedDate = new Date().toISOString().slice(0, 10);
+
+  return Object.keys(patch).length > 0 ? patch : null;
 }
