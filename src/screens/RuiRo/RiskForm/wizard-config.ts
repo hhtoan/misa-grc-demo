@@ -242,9 +242,19 @@ export function isDefaultScore(
 export const DRAFT_KEY = "misa-grc-risk-wizard-draft-v2";
 const DRAFT_KEY_LEGACY = "misa-grc-risk-wizard-draft";
 
+/** Nghi ngờ điểm yếu khai ở bước 5, không thuộc riskFormSchema */
+export interface DraftWeakness {
+  has: boolean;
+  name: string;
+  description: string;
+  priority: "Theo dõi sau" | "Phân tích ngay";
+}
+
 export interface DraftPayload {
   form: RiskFormValue;
   controlIds: string[];
+  /** Có thể vắng ở nháp lưu trước khi bước 5 được dựng */
+  weakness?: DraftWeakness;
   stage: RiskStageKey;
   savedAt: string;
 }

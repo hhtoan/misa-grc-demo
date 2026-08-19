@@ -120,7 +120,15 @@
       "routes": ["/rui-ro/so-dang-ky/them-moi", "/rui-ro/so-dang-ky/[id]/sua"],
       "screenDir": "src/screens/RuiRo/RiskForm",
       "roles": ["admin", "qtrr", "owner"],
-      "description": "Form ghi nhận rủi ro kèm đánh giá cố hữu, kiểm soát hiện có và mức còn lại"
+      "description": "Form ghi nhận rủi ro kèm đánh giá cố hữu, kiểm soát hiện có và mức còn lại",
+      "features": [
+        "Wizard 8 bước theo vòng đời rủi ro",
+        "Bắt buộc gắn mục tiêu bị đe doạ",
+        "Bước 5 tuỳ chọn: ghi nhận nghi ngờ điểm yếu, tự tạo bản ghi Deficiency",
+        "Bước 6 gợi ý điểm còn lại từ tập kiểm soát, cho phép ghi đè và lưu vết",
+        "Cho phép điểm còn lại cao hơn vốn có kèm bắt buộc nêu căn cứ",
+        "Bước 8 rà soát toàn hồ sơ, bấm nhảy tới bước còn thiếu"
+      ]
     },
     {
       "id": "rui-ro-chi-tiet",
@@ -282,7 +290,7 @@
       "screenDir": "src/screens/KhacPhuc/DeficiencyForm",
       "roles": ["admin", "qtrr", "owner"],
       "description": "Form ghi nhận điểm yếu, nhận tham số event hoặc test từ màn hình nguồn",
-      "queryParams": ["event", "control", "test"]
+      "queryParams": ["event", "control", "test", "risk"]
     },
     {
       "id": "khac-phuc-diem-yeu-chi-tiet",

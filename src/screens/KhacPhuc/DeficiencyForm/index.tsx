@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   IconAlertTriangle,
   IconBolt,
@@ -174,6 +174,35 @@ export default function DeficiencyFormScreen({
 /* ================================================================== */
 /* Content                                        */
 /* ================================================================== */
+const searchParams = useSearchParams();
+const risks = useCollection(riskRepo) as unknown as {
+  id: string;
+  code: string;
+  unitId?: string;
+  ownerId?: string;
+}[];
+
+/**
+ * Nạp sẵn khi mở form từ hồ sơ rủi ro.
+ *
+ * Param dùng MÃ rủi ro chứ không dùng id nội bộ, đúng quy ước đường
+ * dẫn của dự án: mã đọc được và chia sẻ được.
+ */
+const presetFromRisk = useMemo(() => {
+  const riskCode = searchParams.get("risk");
+  if (!riskCode) return {};
+
+  const r = risks.find((x) => x.code === riskCode);
+  if (!r) return {};
+
+  return {
+    riskId: r.id,
+    sourceType: "Tự phát hiện" as const,
+    sourceRef: r.code,
+    unitId: r.unitId ?? "",
+    ownerId: r.ownerId ?? "",
+  };
+}, [searchParams, risks]);
 
 function DeficiencyFormContent({
   mode,
@@ -194,7 +223,7 @@ function DeficiencyFormContent({
   const kppns = useCollection(kppnRepo);
 
   const [form, setForm] = useState<DeficiencyFormValue>(() =>
-    emptyDeficiencyForm(),
+    emptyDeficiencyForm(presetFromRisk),
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);

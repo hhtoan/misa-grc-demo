@@ -18,6 +18,8 @@ import {
   IconShieldCheck,
   IconShieldX,
   IconSparkles,
+  IconClipboardList,
+  IconTool,
 } from "@tabler/icons-react";
 import {
   Badge,
@@ -44,7 +46,8 @@ import {
   PageContainer,
   PageHeader,
 } from "@/components/layout";
-import { controlRepo, riskRepo, useCollection } from "@/lib/db";
+import { controlRepo, deficiencyRepo, riskRepo, useCollection } from "@/lib/db";
+
 import { useLookups } from "@/lib/domain/lookups";
 import { RISK_SOURCES, RISK_TREATMENTS } from "@/lib/domain/enums";
 import {
@@ -189,10 +192,41 @@ interface SimpleRepo {
 
 const rRepo = riskRepo as unknown as SimpleRepo;
 const cRepo = controlRepo as unknown as SimpleRepo;
+const dRepo = deficiencyRepo as unknown as SimpleRepo;
 
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
+/** Cộng thêm số ngày, dùng để đặt hạn xử lý điểm yếu ưu tiên */
+function addDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Hạn xử lý theo mức ưu tiên người dùng chọn ở bước 5 */
+const WEAKNESS_DUE_DAYS = 7;
+
+/**
+ * Mức ưu tiên chỉ đổi HẠN XỬ LÝ, không đổi severity.
+ *
+ * Lý do: deficiencyFormSchema bắt buộc rootCause khi severity từ Cao trở
+ * lên. Bước 5 là khai sơ bộ ngay lúc nhận diện rủi ro, người dùng chưa
+ * phân tích nguyên nhân gốc được. Nâng mức nghiêm trọng là việc của Ban
+ * QTRR ở hồ sơ điểm yếu, khi đó họ mới phải điền nguyên nhân gốc.
+ */
+const WEAKNESS_PRIORITY_OPTIONS = [
+  {
+    value: "Theo dõi sau",
+    label: "Theo dõi sau",
+    description: "Ghi nhận để rà soát trong kỳ tới, chưa đặt hạn xử lý",
+  },
+  {
+    value: "Phân tích ngay",
+    label: "Phân tích ngay",
+    description: `Đặt hạn phân tích nguyên nhân gốc trong ${WEAKNESS_DUE_DAYS} ngày`,
+  },
+];
 
 /* ================================================================== */
 /* Màn hình                                                            */
@@ -233,6 +267,11 @@ export default function RiskFormScreen({ code }: { code?: string }) {
    * đặt lại ngay lúc render sau.
    */
   const [prefillKey, setPrefillKey] = useState("");
+  /**
+   * Lỗi của bước 5, giữ riêng vì nghi ngờ điểm yếu KHÔNG thuộc
+   * riskFormSchema. Đây là dữ liệu sinh ra bản ghi Deficiency riêng.
+   */
+  const [weaknessError, setWeaknessError] = useState("");
 
   /* --------------------------- Nạp dữ liệu ---------------------------- */
 
@@ -275,7 +314,11 @@ export default function RiskFormScreen({ code }: { code?: string }) {
     if (!draft) return;
 
     setForm(draft.form);
-    setExtra((prev) => ({ ...prev, controlIds: draft.controlIds ?? [] }));
+    setExtra((prev) => ({
+      ...prev,
+      controlIds: draft.controlIds ?? [],
+      weakness: draft.weakness ?? prev.weakness,
+    }));
     setStage(draft.stage ?? "context");
 
     toast.info?.(
@@ -314,6 +357,21 @@ export default function RiskFormScreen({ code }: { code?: string }) {
   }
 
   /* -------------------------- Dữ liệu dẫn xuất ------------------------ */
+  const deficiencies = useCollection(deficiencyRepo) as unknown as {
+    id: string;
+    code: string;
+    name?: string;
+    severity?: string;
+    status?: string;
+    dueDate?: string;
+    riskId?: string;
+  }[];
+
+  /** Điểm yếu đã gắn với rủi ro này, chỉ có ở form sửa */
+  const linkedDeficiencies = useMemo(
+    () => (editing ? deficiencies.filter((d) => d.riskId === editing.id) : []),
+    [deficiencies, editing],
+  );
 
   const pickedControls = useMemo(
     () => controls.filter((c) => extra.controlIds.includes(c.id)),
@@ -477,6 +535,22 @@ export default function RiskFormScreen({ code }: { code?: string }) {
       );
       return;
     }
+    /* Cổng chặn riêng của bước 5. Bước này tuỳ chọn nên chỉ chặn khi
+       người dùng ĐÃ BẬT ghi nhận mà bỏ trống tên điểm yếu. */
+    if (stage === "weakness") {
+      if (extra.weakness.has && !extra.weakness.name.trim()) {
+        setWeaknessError(
+          "Bắt buộc nhập tên điểm yếu, hoặc tắt ghi nhận nếu chưa có nghi ngờ nào",
+        );
+        scrollToField("weaknessName");
+        toast.error(
+          "Chưa chuyển bước được",
+          "Anh đã bật ghi nhận nghi ngờ điểm yếu nhưng chưa nhập tên.",
+        );
+        return;
+      }
+      setWeaknessError("");
+    }
 
     /* Cổng chặn riêng của bước 4, không thuộc schema */
     if (stage === "controls" && !controlStageDone) {
@@ -503,7 +577,13 @@ export default function RiskFormScreen({ code }: { code?: string }) {
   /* ----------------------------- Nháp -------------------------------- */
 
   function saveDraft() {
-    const ok = writeDraft({ form, controlIds: extra.controlIds, stage });
+    const ok = writeDraft({
+      form,
+      controlIds: extra.controlIds,
+      weakness: extra.weakness,
+      stage,
+    });
+
     if (ok)
       toast.success(
         "Đã lưu nháp",
@@ -538,6 +618,58 @@ export default function RiskFormScreen({ code }: { code?: string }) {
     });
 
     return changed;
+  }
+
+  /**
+   * Tạo bản ghi điểm yếu từ khai báo ở bước 5.
+   *
+   * KHAI ĐỦ 16 TRƯỜNG của deficiencySchema, không trông vào .default().
+   * Lý do: createRepository chỉ spread input rồi gán id, code và mốc thời
+   * gian, KHÔNG parse qua zod. Nên mọi .default() trong schema đều vô
+   * hiệu lúc tạo, và trường thiếu sẽ là undefined rồi gây crash ở màn
+   * hình đọc, đúng như lỗi tags.length trước đây.
+   *
+   * Trả về mã điểm yếu để toast nói rõ người dùng đi tìm ở đâu.
+   */
+  function createWeakness(
+    riskId: string,
+    riskCode: string,
+  ): string | undefined {
+    const w = extra.weakness;
+    if (!w.has || !w.name.trim()) return undefined;
+
+    const row = dRepo.create(
+      {
+        name: w.name.trim(),
+        description: w.description.trim(),
+
+        /* Dùng lại giá trị enum có sẵn, mã rủi ro đi vào sourceRef nên
+           vẫn truy vết được nguồn gốc mà không phải thêm enum mới */
+        sourceType: "Tự phát hiện",
+        sourceRef: riskCode,
+
+        controlId: "",
+        riskId,
+        eventId: "",
+
+        /* Ép Trung bình: schema bắt buộc rootCause khi từ Cao trở lên,
+           mà khai sơ bộ thì chưa phân tích nguyên nhân gốc được */
+        severity: "Trung bình",
+
+        unitId: form.unitId,
+        ownerId: form.ownerId,
+        detectedDate: today(),
+        dueDate:
+          w.priority === "Phân tích ngay" ? addDays(WEAKNESS_DUE_DAYS) : "",
+        rootCause: "",
+        status: "Mới ghi nhận",
+        statusNote: `Ghi nhận sơ bộ khi khai báo rủi ro ${riskCode}, mức ưu tiên ${w.priority}`,
+        kppnIds: [],
+      },
+      user.name,
+    );
+
+    return row.code;
   }
 
   /* ------------------------------ Lưu -------------------------------- */
@@ -575,9 +707,13 @@ export default function RiskFormScreen({ code }: { code?: string }) {
             : ((editing as { controlsChangedAt?: string }).controlsChangedAt ??
               ""),
         });
+        const wCode = createWeakness(editing.id, editing.code);
+
         toast.success(
           `Đã lưu ${editing.code}`,
-          "Hồ sơ rủi ro đã được cập nhật.",
+          wCode
+            ? `Hồ sơ đã cập nhật, đồng thời tạo điểm yếu ${wCode}.`
+            : "Hồ sơ rủi ro đã được cập nhật.",
         );
         router.push(`/rui-ro/so-dang-ky/${editing.code}`);
         return;
@@ -588,11 +724,18 @@ export default function RiskFormScreen({ code }: { code?: string }) {
         user.name,
       );
       applyControlLinks(row.id, extra.controlIds);
+
+      /* Thứ tự bắt buộc: rủi ro phải có id trước, nếu không điểm yếu
+         sẽ mồ côi vì riskId rỗng */
+      const weaknessCode = createWeakness(row.id, row.code);
+
       clearDraft();
 
       toast.success(
         `Đã ghi nhận ${row.code}`,
-        "Rủi ro mới xuất hiện ngay trong sổ đăng ký.",
+        weaknessCode
+          ? `Rủi ro đã vào sổ đăng ký. Đồng thời tạo điểm yếu ${weaknessCode} ở Sổ điểm yếu, trạng thái Mới ghi nhận.`
+          : "Rủi ro mới xuất hiện ngay trong sổ đăng ký.",
       );
       router.push(`/rui-ro/so-dang-ky/${row.code}`);
     } finally {
@@ -985,13 +1128,185 @@ export default function RiskFormScreen({ code }: { code?: string }) {
             />
           )}
 
+          {/* ============== Bước 5: Nghi ngờ điểm yếu ============== */}
           {stage === "weakness" && (
-            <StepPlaceholder
-              index={5}
-              title="Nghi ngờ điểm yếu"
-              note="Bước tuỳ chọn, ghi nhận sơ bộ điểm yếu phát hiện khi rà kiểm soát"
-              batch="D3"
-            />
+            <ContentCard className="flex flex-col gap-4">
+              <StepTitle
+                index={5}
+                title="Nghi ngờ điểm yếu"
+                note="Bước tuỳ chọn. Ghi nhận sơ bộ khe hở phát hiện được khi vừa rà qua danh sách kiểm soát ở bước 4"
+              />
+
+              <div className="flex gap-2 rounded-ctrl border border-lv-info-border bg-lv-info-bg p-2.5 text-[12px] leading-4 text-lv-info-text">
+                <IconInfoCircle size={16} className="mt-px shrink-0" />
+                <span>
+                  Đây là <b>ghi nhận sơ bộ</b>, không phải kết luận. Hệ thống sẽ
+                  tạo một bản ghi điểm yếu ở mức <b>Trung bình</b>, trạng thái{" "}
+                  <b>Mới ghi nhận</b>, gắn sẵn với rủi ro này. Việc phân tích
+                  nguyên nhân gốc và nâng mức nghiêm trọng do Ban QTRR làm sau ở
+                  hồ sơ điểm yếu.
+                </span>
+              </div>
+
+              {/* ---- Điểm yếu đã gắn, chỉ hiện ở form sửa ---- */}
+              {isEdit && linkedDeficiencies.length > 0 && (
+                <section className="flex flex-col gap-1.5">
+                  <p className="flex items-center gap-1.5 text-[12px] text-text-secondary">
+                    <IconClipboardList size={14} className="text-brand" />
+                    Điểm yếu đã gắn với rủi ro này ({linkedDeficiencies.length})
+                  </p>
+                  <ul className="flex flex-col gap-1.5">
+                    {linkedDeficiencies.map((d) => (
+                      <li
+                        key={d.id}
+                        className="flex flex-wrap items-center gap-2 rounded-ctrl border border-border-light px-2.5 py-2"
+                      >
+                        <span className="text-[12px] font-medium text-brand">
+                          {d.code}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-[12px] text-text-primary">
+                          {d.name}
+                        </span>
+                        {d.severity && (
+                          <Badge tone="neutral" size="sm">
+                            {d.severity}
+                          </Badge>
+                        )}
+                        {d.status && (
+                          <Badge tone="brand" size="sm">
+                            {d.status}
+                          </Badge>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-[11px] leading-4 text-text-hint">
+                    Các điểm yếu này không bị sửa ở đây. Khai bên dưới sẽ tạo
+                    thêm một bản ghi mới.
+                  </p>
+                </section>
+              )}
+
+              {/* ---- Bật hoặc tắt ghi nhận ---- */}
+              <div className="flex flex-col gap-1 rounded-ctrl bg-surface-alt px-3 py-2.5">
+                <Checkbox
+                  label="Có nghi ngờ điểm yếu trong tập kiểm soát hiện tại"
+                  checked={extra.weakness.has}
+                  onChange={(e) => {
+                    setWeaknessError("");
+                    patchExtra({
+                      weakness: { ...extra.weakness, has: e.target.checked },
+                    });
+                  }}
+                />
+                <span className="pl-6 text-[11px] leading-4 text-text-hint">
+                  Không bật thì bấm <b>Bỏ qua và tiếp tục</b> để sang bước 6.
+                  Không có gì được tạo thêm.
+                </span>
+              </div>
+
+              {/* ---- Mini-form ---- */}
+              {extra.weakness.has && (
+                <div className="flex flex-col gap-4 rounded-card border border-lv-medium-border bg-lv-medium-bg/20 p-3">
+                  <div className="flex items-center gap-2">
+                    <IconTool size={16} className="text-lv-medium-text" />
+                    <span className="text-[13px] font-semibold text-text-primary">
+                      Thông tin điểm yếu sơ bộ
+                    </span>
+                  </div>
+
+                  <div data-field="weaknessName">
+                    <Input
+                      label="Tên điểm yếu"
+                      required
+                      placeholder="Ví dụ: Chưa có kiểm soát nào phát hiện việc vượt hạn mức phê duyệt"
+                      value={extra.weakness.name}
+                      error={weaknessError}
+                      onChange={(e) => {
+                        setWeaknessError("");
+                        patchExtra({
+                          weakness: {
+                            ...extra.weakness,
+                            name: e.target.value,
+                          },
+                        });
+                      }}
+                    />
+                  </div>
+
+                  <Textarea
+                    label="Mô tả khe hở"
+                    rows={3}
+                    maxLength={1000}
+                    showCount
+                    placeholder="Khe hở nằm ở đâu, vì sao tập kiểm soát hiện tại chưa đủ"
+                    value={extra.weakness.description}
+                    onChange={(e) =>
+                      patchExtra({
+                        weakness: {
+                          ...extra.weakness,
+                          description: e.target.value,
+                        },
+                      })
+                    }
+                  />
+
+                  <Select
+                    label="Mức ưu tiên xử lý"
+                    options={WEAKNESS_PRIORITY_OPTIONS}
+                    value={extra.weakness.priority}
+                    hint="Mức ưu tiên chỉ đặt hạn xử lý, mức nghiêm trọng luôn là Trung bình khi khai sơ bộ"
+                    onChange={(v) =>
+                      patchExtra({
+                        weakness: {
+                          ...extra.weakness,
+                          priority:
+                            (v as typeof extra.weakness.priority) ??
+                            "Theo dõi sau",
+                        },
+                      })
+                    }
+                  />
+
+                  <div className="flex flex-col gap-1 rounded-ctrl bg-white/70 p-2.5 text-[11px] leading-4 text-text-secondary">
+                    <span className="font-medium text-text-primary">
+                      Bản ghi sẽ được tạo với thông tin sau
+                    </span>
+                    <span>
+                      Nguồn phát hiện <b>Tự phát hiện</b> · mức nghiêm trọng{" "}
+                      <b>Trung bình</b> · trạng thái <b>Mới ghi nhận</b>
+                    </span>
+                    <span>
+                      Đơn vị <b>{lk.unitName(form.unitId, "chưa chọn")}</b> ·
+                      người chịu trách nhiệm{" "}
+                      <b>{lk.employeeName(form.ownerId, "chưa gán")}</b>
+                    </span>
+                    <span>
+                      Hạn khắc phục{" "}
+                      <b>
+                        {extra.weakness.priority === "Phân tích ngay"
+                          ? addDays(WEAKNESS_DUE_DAYS)
+                          : "chưa đặt"}
+                      </b>
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* ---- Nhắc về ảnh hưởng tới bước 6 ---- */}
+              {extra.weakness.has && extra.weakness.name.trim() && (
+                <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
+                  <IconAlertTriangle size={16} className="mt-px shrink-0" />
+                  <span>
+                    Anh vừa ghi nhận một khe hở. Gợi ý điểm còn lại ở bước 6
+                    tính theo kết luận hiệu lực <b>đã có</b> của từng kiểm soát,
+                    nên <b>chưa tính tới</b> điểm yếu này. Con số gợi ý có thể
+                    lạc quan hơn thực tế, anh cân nhắc chấm cao hơn gợi ý và nêu
+                    rõ trong luận cứ.
+                  </span>
+                </div>
+              )}
+            </ContentCard>
           )}
 
           {/* ============== Bước 6: Đánh giá còn lại ============== */}
