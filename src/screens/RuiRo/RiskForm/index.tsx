@@ -12,6 +12,12 @@ import {
   IconLock,
   IconTarget,
   IconTools,
+  IconCircleCheck,
+  IconCoin,
+  IconRadar,
+  IconShieldCheck,
+  IconShieldX,
+  IconSparkles,
 } from "@tabler/icons-react";
 import {
   Badge,
@@ -25,6 +31,11 @@ import {
   Select,
   Textarea,
   useToast,
+  EffectivenessBadge,
+  RiskBadge,
+  ScoreSelector,
+  Tooltip,
+  type ScoreValue,
 } from "@/components/ui";
 import {
   ContentCard,
@@ -35,11 +46,13 @@ import {
 } from "@/components/layout";
 import { controlRepo, riskRepo, useCollection } from "@/lib/db";
 import { useLookups } from "@/lib/domain/lookups";
-import { RISK_SOURCES } from "@/lib/domain/enums";
+import { RISK_SOURCES, RISK_TREATMENTS } from "@/lib/domain/enums";
 import {
   emptyRiskForm,
   inherentLevelOf,
   inherentScoreOf,
+  residualLevelOf,
+  residualScoreOf,
   riskToForm,
   type RiskFormValue,
 } from "@/lib/domain/risk-utils";
@@ -49,6 +62,14 @@ import {
   stageIndexOf,
   type RiskStageKey,
 } from "@/lib/domain/risk-lifecycle";
+import { RISK_SCORING_CRITERIA } from "@/lib/domain/scoring-criteria";
+import { overallEffectivenessOf } from "@/lib/domain/control-utils";
+import {
+  describeSuggestion,
+  shortSuggestionHint,
+  suggestResidual,
+} from "@/lib/domain/residual-suggestion";
+import RiskSummaryReview from "../RiskSummaryReview";
 import { useSession } from "@/config/session";
 import { cn } from "@/lib/cn";
 import {
@@ -138,6 +159,20 @@ const EMPTY_EXTRA: WizardExtra = {
 /** Sinh từ enum thay vì khai tay, để không bao giờ lệch giá trị */
 const SOURCE_OPTIONS = RISK_SOURCES.map((v) => ({ value: v, label: v }));
 
+/** Sinh từ enum, kèm mô tả để người dùng chọn đúng phương án */
+const TREATMENT_DESC: Record<string, string> = {
+  "Giảm thiểu": "Bổ sung hoặc tăng cường kiểm soát để hạ mức rủi ro",
+  "Chuyển giao": "Mua bảo hiểm hoặc chuyển trách nhiệm sang bên thứ ba",
+  Tránh: "Dừng hoặc thay đổi hoạt động phát sinh rủi ro",
+  "Chấp nhận": "Giữ nguyên, chỉ theo dõi vì mức rủi ro trong khẩu vị",
+};
+
+const TREATMENT_OPTIONS = RISK_TREATMENTS.map((v) => ({
+  value: v,
+  label: v,
+  description: TREATMENT_DESC[v] ?? "",
+}));
+
 /** Kiểm soát chưa phê duyệt thì chưa tính là đang bảo vệ rủi ro */
 const NOT_YET_ACTIVE = new Set(["Nháp", "Chờ duyệt"]);
 
@@ -189,6 +224,15 @@ export default function RiskFormScreen({ code }: { code?: string }) {
   const [leaving, setLeaving] = useState(false);
   const [loadedKey, setLoadedKey] = useState("");
   const [draftLoaded, setDraftLoaded] = useState(false);
+  /**
+   * Chữ ký của lần pre-fill gần nhất.
+   *
+   * Gồm điểm vốn có cộng danh sách kiểm soát đã chọn. Khi chữ ký đổi
+   * nghĩa là căn cứ tính gợi ý đã khác, nên tính lại. Khi chữ ký không
+   * đổi thì KHÔNG ghi đè, để người dùng sửa điểm xong không bị hệ thống
+   * đặt lại ngay lúc render sau.
+   */
+  const [prefillKey, setPrefillKey] = useState("");
 
   /* --------------------------- Nạp dữ liệu ---------------------------- */
 
@@ -197,6 +241,9 @@ export default function RiskFormScreen({ code }: { code?: string }) {
     setLoadedKey(recordKey);
     setErrors({});
     setStage("context");
+    /* Form sửa: KHÔNG pre-fill, vì điểm hiện tại là kết luận đã có của
+       người đánh giá trước. Gợi ý chỉ hiện kèm nút Áp dụng. */
+    setPrefillKey(editing ? "locked" : "");
 
     if (editing) {
       setForm(riskToForm(editing as never));
@@ -289,6 +336,99 @@ export default function RiskFormScreen({ code }: { code?: string }) {
    * sẽ khoá luôn bước 6.
    */
   const controlStageDone = activePicked.length > 0 || !!form.noControlAccepted;
+
+  /* -------------------------- Gợi ý điểm còn lại ---------------------- */
+
+  const suggestion = useMemo(
+    () =>
+      suggestResidual(
+        form.inherentLikelihood,
+        form.inherentImpact,
+        pickedControls,
+        { noControlAccepted: form.noControlAccepted },
+      ),
+    [
+      form.inherentLikelihood,
+      form.inherentImpact,
+      form.noControlAccepted,
+      pickedControls,
+    ],
+  );
+
+  /** Chữ ký căn cứ tính gợi ý, đổi thì mới pre-fill lại */
+  const suggestionSignature = useMemo(
+    () =>
+      [
+        form.inherentLikelihood,
+        form.inherentImpact,
+        form.noControlAccepted ? "no-ctrl" : "",
+        [...extra.controlIds].sort().join(","),
+      ].join("|"),
+    [
+      form.inherentLikelihood,
+      form.inherentImpact,
+      form.noControlAccepted,
+      extra.controlIds,
+    ],
+  );
+
+  /**
+   * Pre-fill điểm còn lại khi vào bước 6.
+   *
+   * Luôn lưu vết gợi ý qua suggestedResidual*, kể cả khi không pre-fill,
+   * để sau này biết người dùng có ghi đè hay không. Chỉ điền vào ô chấm
+   * điểm khi đang TẠO MỚI và căn cứ vừa thay đổi.
+   */
+  useEffect(() => {
+    if (stage !== "residual") return;
+    if (prefillKey === suggestionSignature) return;
+
+    const isLocked = prefillKey === "locked";
+    setPrefillKey(suggestionSignature);
+
+    patch({
+      suggestedResidualLikelihood: suggestion.likelihood,
+      suggestedResidualImpact: suggestion.impact,
+      ...(isLocked
+        ? {}
+        : {
+            residualLikelihood: suggestion.likelihood,
+            residualImpact: suggestion.impact,
+          }),
+    });
+
+    if (!isLocked) markTouched("residualLikelihood", "residualImpact");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stage, suggestionSignature, prefillKey]);
+
+  /** Người dùng bấm Áp dụng gợi ý ở form sửa */
+  function applySuggestion() {
+    patch({
+      residualLikelihood: suggestion.likelihood,
+      residualImpact: suggestion.impact,
+      suggestedResidualLikelihood: suggestion.likelihood,
+      suggestedResidualImpact: suggestion.impact,
+    });
+    markTouched("residualLikelihood", "residualImpact");
+    toast.success("Đã áp dụng gợi ý", shortSuggestionHint(suggestion));
+  }
+
+  /* --------------------- Dữ liệu dẫn xuất bước 6 và 8 ---------------- */
+
+  const residualScore = residualScoreOf(form);
+  const residualLevel = residualLevelOf(form);
+
+  /** Điểm còn lại cao hơn vốn có, trường hợp hợp lệ nhưng cần căn cứ */
+  const residualHigher = residualScore > inherentScore;
+
+  /** Người dùng giữ nguyên mức vốn có trong khi hệ thống đề xuất giảm */
+  const ignoredReduction =
+    suggestion.hasReduction && residualScore === inherentScore;
+
+  /** Ghi đè khác gợi ý */
+  const overriddenSuggestion =
+    form.residualLikelihood !== suggestion.likelihood ||
+    form.residualImpact !== suggestion.impact;
 
   /* --------------------------- Điều hướng ----------------------------- */
 
@@ -724,26 +864,124 @@ export default function RiskFormScreen({ code }: { code?: string }) {
           )}
 
           {/* ============ Bước 3 tới 8: chờ nhịp sau ============ */}
+          {/* ============== Bước 3: Đánh giá vốn có ============== */}
           {stage === "inherent" && (
-            <StepPlaceholder
-              index={3}
-              title="Đánh giá rủi ro vốn có"
-              note="Chấm điểm khi giả định chưa có kiểm soát nào, kèm ước lượng tổn thất"
-              batch="D2b"
-            />
+            <ContentCard className="flex flex-col gap-4">
+              <StepTitle
+                index={3}
+                title="Đánh giá rủi ro vốn có"
+                note="Chấm điểm khi giả định CHƯA có kiểm soát nào. Đây là mốc để so sánh về sau"
+              />
+
+              <div className="flex gap-2 rounded-ctrl border border-lv-info-border bg-lv-info-bg p-2.5 text-[12px] leading-4 text-lv-info-text">
+                <IconInfoCircle size={16} className="mt-px shrink-0" />
+                <span>
+                  Rủi ro vốn có là mức rủi ro <b>trước khi</b> tính tới tác dụng
+                  của kiểm soát. Nếu chấm luôn theo tình trạng hiện tại thì mất
+                  mốc so sánh, và không đo được kiểm soát đang mang lại giá trị
+                  gì.
+                </span>
+              </div>
+
+              <ScoreSelector
+                criteria={RISK_SCORING_CRITERIA}
+                value={{
+                  likelihood: form.inherentLikelihood,
+                  impact: form.inherentImpact,
+                }}
+                onChange={(v: ScoreValue) => {
+                  markTouched("inherentLikelihood", "inherentImpact");
+                  patch({
+                    inherentLikelihood: v.likelihood ?? form.inherentLikelihood,
+                    inherentImpact: v.impact ?? form.inherentImpact,
+                  });
+                }}
+                errors={{
+                  likelihood: errors.inherentLikelihood,
+                  impact: errors.inherentImpact,
+                }}
+                expandedByDefault={!isEdit}
+                summary={
+                  <ScoreSummary
+                    label="Rủi ro vốn có"
+                    score={inherentScore}
+                    level={inherentLevelOf(form)}
+                    likelihood={form.inherentLikelihood}
+                    impact={form.inherentImpact}
+                  />
+                }
+              />
+
+              {/* --- Nhắc mềm khi điểm còn ở mức mặc định --- */}
+              {!extra.touched.includes("inherentLikelihood") && (
+                <div className="flex gap-2 rounded-ctrl bg-surface-alt p-2.5 text-[12px] leading-4 text-text-secondary">
+                  <IconRadar size={15} className="mt-px shrink-0" />
+                  <span>
+                    Bảng điểm đang ở <b>mức mặc định 3 × 3</b>. Anh vẫn đi tiếp
+                    được, nhưng nên xác nhận hoặc điều chỉnh để con số phản ánh
+                    đúng đánh giá của mình.
+                  </span>
+                </div>
+              )}
+
+              {/* --- Ước lượng tổn thất --- */}
+              <div
+                data-field="estimatedLoss"
+                className="flex flex-col gap-2 rounded-card border border-border-light p-3"
+              >
+                <div className="flex items-center gap-2">
+                  <IconCoin size={16} className="text-brand" />
+                  <span className="text-[13px] font-semibold text-text-primary">
+                    Ước lượng tổn thất nếu rủi ro xảy ra
+                  </span>
+                </div>
+
+                <Input
+                  label="Số tiền ước tính"
+                  inputMode="numeric"
+                  placeholder="Để trống nếu chưa lượng hoá được"
+                  value={
+                    form.estimatedLoss === null ||
+                    form.estimatedLoss === undefined
+                      ? ""
+                      : String(form.estimatedLoss)
+                  }
+                  error={errors.estimatedLoss}
+                  hint={
+                    errors.estimatedLoss
+                      ? undefined
+                      : "Đơn vị là đồng. Con số này là căn cứ trực tiếp cho mức ảnh hưởng vừa chấm"
+                  }
+                  onChange={(e) => {
+                    const raw = e.target.value.replace(/[^\d]/g, "");
+                    patch({ estimatedLoss: raw === "" ? null : Number(raw) });
+                  }}
+                />
+              </div>
+
+              {requiresControl && (
+                <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
+                  <IconAlertTriangle size={16} className="mt-px shrink-0" />
+                  <span>
+                    Điểm vốn có <b>{inherentScore}</b> thuộc mức{" "}
+                    <b>{inherentLevelOf(form)}</b>, nên ở bước 4 <b>bắt buộc</b>{" "}
+                    phải gắn ít nhất 1 kiểm soát đã phê duyệt.
+                  </span>
+                </div>
+              )}
+            </ContentCard>
           )}
 
+          {/* ============== Bước 4: Chọn kiểm soát ============== */}
           {stage === "controls" && (
-            <StepPlaceholder
-              index={4}
-              title="Chọn kiểm soát"
-              note="Gắn kiểm soát đang bảo vệ rủi ro này từ thư viện kiểm soát"
-              batch="D2b"
-              extraNote={
-                controlStageDone
-                  ? undefined
-                  : "Bước 6 đang bị khoá cho tới khi bước này hoàn tất."
-              }
+            <ControlPickerStep
+              controls={controls}
+              value={extra.controlIds}
+              noControlAccepted={!!form.noControlAccepted}
+              requiresControl={requiresControl}
+              unitName={(id) => lk.unitName(id)}
+              onChange={(ids) => patchExtra({ controlIds: ids })}
+              onToggleAccept={(v) => patch({ noControlAccepted: v })}
             />
           )}
 
@@ -756,31 +994,477 @@ export default function RiskFormScreen({ code }: { code?: string }) {
             />
           )}
 
+          {/* ============== Bước 6: Đánh giá còn lại ============== */}
           {stage === "residual" && (
-            <StepPlaceholder
-              index={6}
-              title="Đánh giá rủi ro còn lại"
-              note="Hệ thống gợi ý điểm từ tập kiểm soát, người dùng sửa tự do"
-              batch="D2b"
-            />
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
+              {/* ---------- Cột căn cứ, chỉ đọc ---------- */}
+              <ContentCard className="flex flex-col gap-3 xl:col-span-2">
+                <p className="text-[13px] font-semibold text-text-primary">
+                  Căn cứ đánh giá
+                </p>
+
+                <div className="flex flex-col gap-1.5 rounded-ctrl bg-surface-alt p-2.5">
+                  <p className="text-[12px] text-text-secondary">
+                    Điểm vốn có đã chấm
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <RiskBadge
+                      level={inherentLevelOf(form)}
+                      score={inherentScore}
+                    />
+                    <span className="text-[12px] text-text-secondary">
+                      Khả năng {form.inherentLikelihood} × Ảnh hưởng{" "}
+                      {form.inherentImpact}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-[12px] text-text-secondary">
+                    Kiểm soát đang phủ rủi ro này ({activePicked.length})
+                  </p>
+                  {activePicked.length === 0 ? (
+                    <p className="rounded-ctrl bg-surface-alt p-2.5 text-[12px] text-text-hint">
+                      Không có kiểm soát nào được tính. Đã tuyên bố chấp nhận
+                      rủi ro.
+                    </p>
+                  ) : (
+                    <ul className="flex flex-col gap-1.5">
+                      {activePicked.map((c) => (
+                        <li
+                          key={c.id}
+                          className="flex flex-col gap-0.5 rounded-ctrl border border-border-light p-2"
+                        >
+                          <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                            <span className="truncate text-[12px] font-medium text-brand">
+                              {c.code}
+                            </span>
+                            {c.isKeyControl && (
+                              <Badge tone="brand" size="sm">
+                                Trọng yếu
+                              </Badge>
+                            )}
+                            <EffectivenessBadge
+                              size="sm"
+                              short
+                              value={overallEffectivenessOf(c)}
+                            />
+                          </span>
+                          <span className="truncate text-[12px] text-text-primary">
+                            {c.name}
+                          </span>
+                          <span className="text-[11px] text-text-secondary">
+                            {c.type} · {c.nature} · {c.frequency}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* ---------- Khối gợi ý của hệ thống ---------- */}
+                <div className="flex flex-col gap-2 rounded-ctrl border border-brand bg-brand-light/30 p-2.5">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <IconSparkles size={15} className="shrink-0 text-brand" />
+                    <span className="text-[12px] font-semibold text-text-primary">
+                      Hệ thống gợi ý
+                    </span>
+                    <span className="ml-auto">
+                      <Badge tone="brand" size="sm">
+                        {suggestion.likelihood} × {suggestion.impact} ={" "}
+                        {suggestion.score} điểm
+                      </Badge>
+                    </span>
+                  </span>
+
+                  <span className="text-[11px] leading-4 text-text-secondary">
+                    {describeSuggestion(suggestion)}
+                  </span>
+
+                  {isEdit && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<IconSparkles size={14} />}
+                      onClick={applySuggestion}
+                    >
+                      Áp dụng gợi ý
+                    </Button>
+                  )}
+
+                  <span className="text-[11px] leading-4 text-text-hint">
+                    Đây chỉ là đề xuất. Anh sửa tự do, hệ thống lưu lại cả con
+                    số gợi ý để đối chiếu về sau.
+                  </span>
+                </div>
+              </ContentCard>
+
+              {/* ---------- Cột chấm điểm ---------- */}
+              <ContentCard className="flex flex-col gap-4 xl:col-span-3">
+                <StepTitle
+                  index={6}
+                  title="Đánh giá rủi ro còn lại"
+                  note="Chấm lại điểm sau khi đã tính tới tác dụng của kiểm soát hiện có"
+                />
+
+                {/* KHÔNG còn prop maxValue: điểm còn lại được phép cao hơn
+                    vốn có, đây là lớp chặn thứ ba đã gỡ theo quyết định
+                    chốt ngày 18/08/2026 */}
+                <ScoreSelector
+                  criteria={RISK_SCORING_CRITERIA}
+                  value={{
+                    likelihood: form.residualLikelihood,
+                    impact: form.residualImpact,
+                  }}
+                  onChange={(v: ScoreValue) => {
+                    markTouched("residualLikelihood", "residualImpact");
+                    patch({
+                      residualLikelihood:
+                        v.likelihood ?? form.residualLikelihood,
+                      residualImpact: v.impact ?? form.residualImpact,
+                    });
+                  }}
+                  compareValue={{
+                    likelihood: form.inherentLikelihood,
+                    impact: form.inherentImpact,
+                  }}
+                  compareLabel="Vốn có"
+                  errors={{
+                    likelihood: errors.residualLikelihood,
+                    impact: errors.residualImpact,
+                  }}
+                  summary={
+                    <ScoreSummary
+                      label="Rủi ro còn lại"
+                      score={residualScore}
+                      level={residualLevel}
+                      likelihood={form.residualLikelihood}
+                      impact={form.residualImpact}
+                      compareScore={inherentScore}
+                    />
+                  }
+                />
+
+                {/* --- Cảnh báo 1: cao hơn vốn có --- */}
+                {residualHigher && (
+                  <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
+                    <IconAlertTriangle size={16} className="mt-px shrink-0" />
+                    <span>
+                      Điểm còn lại <b>{residualScore}</b> cao hơn điểm vốn có{" "}
+                      <b>{inherentScore}</b>. Đây là <b>trường hợp hợp lệ</b>,
+                      ví dụ kiểm soát mới làm phát sinh rủi ro thứ cấp, hoặc bối
+                      cảnh đã xấu đi so với lần đánh giá vốn có. Hệ thống chỉ
+                      yêu cầu anh <b>nêu căn cứ</b> ở ô luận cứ bên dưới.
+                    </span>
+                  </div>
+                )}
+
+                {/* --- Cảnh báo 2: bỏ qua phần giảm hệ thống đề xuất --- */}
+                {ignoredReduction && (
+                  <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
+                    <IconAlertTriangle size={16} className="mt-px shrink-0" />
+                    <span>
+                      Anh giữ nguyên mức vốn có, trong khi hệ thống đề xuất giảm{" "}
+                      <b>{suggestion.steps} bậc</b> dựa trên{" "}
+                      {suggestion.aggregate.countedCount} kiểm soát đã đánh giá.
+                      Nếu đúng là kiểm soát chưa mang lại tác dụng thực tế thì
+                      nên nêu rõ trong luận cứ.
+                    </span>
+                  </div>
+                )}
+
+                {/* --- Cảnh báo 3: hạ nhiều mà không có luận cứ --- */}
+                {!residualHigher &&
+                  inherentScore - residualScore > 8 &&
+                  !(form.residualRationale ?? "").trim() && (
+                    <div className="flex gap-2 rounded-ctrl border border-lv-info-border bg-lv-info-bg p-2.5 text-[12px] leading-4 text-lv-info-text">
+                      <IconInfoCircle size={16} className="mt-px shrink-0" />
+                      <span>
+                        Điểm giảm <b>{inherentScore - residualScore}</b> điểm là
+                        mức giảm lớn. Nên ghi luận cứ để kiểm toán nội bộ đọc
+                        lại vẫn hiểu được căn cứ hạ mức.
+                      </span>
+                    </div>
+                  )}
+
+                {/* --- Luận cứ --- */}
+                <div data-field="residualRationale">
+                  <Textarea
+                    label="Luận cứ đánh giá"
+                    required={residualHigher}
+                    rows={3}
+                    maxLength={800}
+                    showCount
+                    placeholder="Vì sao chấm mức này, kiểm soát nào tạo ra tác dụng đó, còn khe hở nào"
+                    value={form.residualRationale ?? ""}
+                    error={errors.residualRationale}
+                    hint={
+                      errors.residualRationale
+                        ? undefined
+                        : residualHigher
+                          ? "Bắt buộc khi điểm còn lại cao hơn vốn có"
+                          : "Không bắt buộc, nhưng rất cần khi hạ nhiều bậc"
+                    }
+                    onChange={(e) =>
+                      patch({ residualRationale: e.target.value })
+                    }
+                  />
+                </div>
+
+                {/* --- Đối chiếu với gợi ý --- */}
+                {overriddenSuggestion && (
+                  <p className="flex items-start gap-1.5 text-[11px] leading-4 text-text-hint">
+                    <IconRadar size={13} className="mt-px shrink-0" />
+                    Anh đang chọn khác gợi ý của hệ thống (
+                    <b>
+                      {suggestion.likelihood} × {suggestion.impact}
+                    </b>
+                    ). Cả hai con số đều được lưu để đối chiếu, con số của anh
+                    là con số chính thức.
+                  </p>
+                )}
+              </ContentCard>
+            </div>
           )}
 
+          {/* ============== Bước 7: Phương án xử lý ============== */}
           {stage === "treat" && (
-            <StepPlaceholder
-              index={7}
-              title="Phương án xử lý"
-              note="Chiến lược ứng phó, định hướng xử lý và kỳ rà soát lại"
-              batch="D2b"
-            />
+            <ContentCard className="flex flex-col gap-4">
+              <StepTitle
+                index={7}
+                title="Phương án xử lý"
+                note="Quyết định sẽ làm gì với mức rủi ro còn lại và khi nào rà soát lại"
+              />
+
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div data-field="treatment">
+                  <Select
+                    label="Phương án xử lý"
+                    required
+                    options={
+                      form.isZeroTolerance
+                        ? TREATMENT_OPTIONS.filter(
+                            (o) => o.value !== "Chấp nhận",
+                          )
+                        : TREATMENT_OPTIONS
+                    }
+                    value={form.treatment || null}
+                    error={errors.treatment}
+                    hint={
+                      errors.treatment
+                        ? undefined
+                        : form.isZeroTolerance
+                          ? "Rủi ro không khoan nhượng nên phương án Chấp nhận đã bị loại khỏi danh sách"
+                          : undefined
+                    }
+                    onChange={(v) =>
+                      patch({ treatment: (v ?? "") as typeof form.treatment })
+                    }
+                  />
+                </div>
+
+                <div data-field="reviewDate">
+                  <DateInput
+                    label="Kỳ rà soát lại"
+                    min={form.identifiedDate || undefined}
+                    value={form.reviewDate}
+                    error={errors.reviewDate}
+                    hint={
+                      errors.reviewDate
+                        ? undefined
+                        : "Quá ngày này mà chưa rà soát, hệ thống sẽ hiện nhãn nhắc"
+                    }
+                    onChange={(v) => patch({ reviewDate: v })}
+                  />
+                </div>
+              </div>
+
+              <div data-field="treatmentNote">
+                <Textarea
+                  label="Định hướng xử lý"
+                  required={form.treatment !== "Chấp nhận"}
+                  rows={3}
+                  maxLength={1000}
+                  showCount
+                  placeholder="Sẽ làm gì, ai làm, mốc thời gian dự kiến"
+                  value={form.treatmentNote}
+                  error={errors.treatmentNote}
+                  hint={
+                    errors.treatmentNote
+                      ? undefined
+                      : form.treatment === "Chấp nhận"
+                        ? "Với phương án Chấp nhận thì không bắt buộc, nhưng nên nêu điều kiện theo dõi"
+                        : "Bắt buộc với mọi phương án khác Chấp nhận"
+                  }
+                  onChange={(e) => patch({ treatmentNote: e.target.value })}
+                />
+              </div>
+
+              {form.treatment === "Chấp nhận" && residualScore > 9 && (
+                <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
+                  <IconAlertTriangle size={16} className="mt-px shrink-0" />
+                  <span>
+                    Chọn <b>Chấp nhận</b> với rủi ro còn lại mức{" "}
+                    <b>{residualLevel}</b> là quyết định cần cấp có thẩm quyền
+                    phê duyệt. Nên ghi rõ căn cứ trong luận cứ đánh giá ở bước
+                    6.
+                  </span>
+                </div>
+              )}
+
+              {!(form.reviewDate ?? "").trim() && (
+                <div className="flex gap-2 rounded-ctrl bg-surface-alt p-2.5 text-[12px] leading-4 text-text-secondary">
+                  <IconInfoCircle size={15} className="mt-px shrink-0" />
+                  <span>
+                    Chưa đặt kỳ rà soát lại. Hồ sơ vẫn lưu được, nhưng rủi ro sẽ
+                    không có mốc nào để hệ thống nhắc đánh giá lại.
+                  </span>
+                </div>
+              )}
+            </ContentCard>
           )}
 
+          {/* ============== Bước 8: Rà soát và gửi ============== */}
           {stage === "review" && (
-            <StepPlaceholder
-              index={8}
-              title="Rà soát và gửi"
-              note="Xem lại toàn bộ hồ sơ, liệt kê mọi nội dung còn thiếu theo từng bước"
-              batch="D2b"
-            />
+            <div className="flex flex-col gap-4">
+              {/* ---------- Kết quả kiểm tra toàn bộ ---------- */}
+              {(() => {
+                const check = validateAll(form);
+
+                if (check.ok)
+                  return (
+                    <div className="flex gap-2 rounded-card border border-lv-low-border bg-lv-low-bg p-3 text-[12px] leading-4 text-lv-low-text">
+                      <IconCircleCheck size={17} className="mt-px shrink-0" />
+                      <span>
+                        <b className="text-[13px]">
+                          Hồ sơ đã đủ điều kiện lưu.
+                        </b>
+                        <br />
+                        Toàn bộ nội dung bắt buộc đã hợp lệ theo quy tắc nghiệp
+                        vụ. Anh xem lại phần tóm tắt bên dưới rồi bấm{" "}
+                        {isEdit ? "Lưu thay đổi" : "Ghi nhận rủi ro"}.
+                      </span>
+                    </div>
+                  );
+
+                return (
+                  <div className="flex flex-col gap-2 rounded-card border border-lv-critical-border bg-lv-critical-bg p-3">
+                    <span className="flex items-center gap-2 text-[13px] font-semibold text-lv-critical-text">
+                      <IconShieldX size={16} />
+                      Còn {Object.keys(check.errors).length} nội dung chưa hợp
+                      lệ
+                    </span>
+
+                    <ul className="flex flex-col gap-2">
+                      {check.byStage.map((g) => {
+                        const idx = stageIndexOf(g.stage);
+                        const meta = WIZARD_STAGES[idx];
+                        return (
+                          <li key={g.stage} className="flex flex-col gap-1">
+                            <button
+                              type="button"
+                              onClick={() => goto(g.stage)}
+                              className="inline-flex w-fit items-center gap-1.5 text-[12px] font-medium text-lv-critical-text underline decoration-dotted"
+                            >
+                              Bước {idx + 1} · {meta?.label ?? g.stage}
+                              <IconArrowRight size={13} />
+                            </button>
+                            <ul className="flex flex-col gap-0.5 pl-4">
+                              {g.fields.map((f) => (
+                                <li
+                                  key={f.field}
+                                  className="text-[12px] leading-4 text-lv-critical-text"
+                                >
+                                  • {f.message}
+                                </li>
+                              ))}
+                            </ul>
+                          </li>
+                        );
+                      })}
+                    </ul>
+
+                    <span className="text-[11px] leading-4 text-lv-critical-text opacity-90">
+                      Bấm vào tên bước để nhảy tới đúng chỗ cần bổ sung.
+                    </span>
+                  </div>
+                );
+              })()}
+
+              {/* ---------- Tóm tắt hồ sơ ---------- */}
+              <ContentCard className="flex flex-col gap-4">
+                <StepTitle
+                  index={8}
+                  title="Rà soát toàn bộ hồ sơ"
+                  note="Đối chiếu lần cuối trước khi lưu, mọi mục đều sửa được bằng cách quay lại bước tương ứng"
+                />
+
+                <RiskSummaryReview
+                  objectiveNames={form.objectiveIds.map((id) =>
+                    lk.objectiveName(id, id),
+                  )}
+                  unitName={lk.unitName(form.unitId, "chưa chọn")}
+                  processName={
+                    form.processId
+                      ? lk.processName(form.processId, "")
+                      : undefined
+                  }
+                  systemName={
+                    form.systemId ? lk.systemName(form.systemId, "") : undefined
+                  }
+                  name={form.name}
+                  description={form.description}
+                  categoryName={lk.categoryName(form.categoryId, "chưa chọn")}
+                  ownerName={lk.employeeName(form.ownerId, "chưa gán")}
+                  source={form.source}
+                  identifiedDate={form.identifiedDate}
+                  isZeroTolerance={form.isZeroTolerance}
+                  inherentScore={inherentScore}
+                  inherentLevel={inherentLevelOf(form)}
+                  inherentLikelihood={form.inherentLikelihood}
+                  inherentImpact={form.inherentImpact}
+                  residualScore={residualScore}
+                  residualLevel={residualLevel}
+                  residualLikelihood={form.residualLikelihood}
+                  residualImpact={form.residualImpact}
+                  residualRationale={form.residualRationale}
+                  estimatedLoss={form.estimatedLoss}
+                  treatment={form.treatment}
+                  treatmentNote={form.treatmentNote}
+                  reviewDate={form.reviewDate}
+                  noControlAccepted={form.noControlAccepted}
+                  controls={pickedControls.map((c) => ({
+                    code: c.code,
+                    name: c.name,
+                    type: c.type,
+                    status: c.status,
+                    isKeyControl: c.isKeyControl,
+                    effectiveness: overallEffectivenessOf(c),
+                    pending: NOT_YET_ACTIVE.has(c.status ?? ""),
+                  }))}
+                  weakness={
+                    extra.weakness.has && extra.weakness.name.trim()
+                      ? {
+                          name: extra.weakness.name,
+                          priority: extra.weakness.priority,
+                        }
+                      : null
+                  }
+                  suggestion={{
+                    likelihood: suggestion.likelihood,
+                    impact: suggestion.impact,
+                    hint: shortSuggestionHint(suggestion),
+                  }}
+                />
+
+                <p className="flex items-start gap-1.5 text-[11px] leading-4 text-text-hint">
+                  <IconInfoCircle size={13} className="mt-px shrink-0" />
+                  Rủi ro được lưu ở trạng thái <b>{form.status}</b>. Việc trình
+                  duyệt và chuyển trạng thái thực hiện ở hồ sơ rủi ro sau khi
+                  lưu.
+                </p>
+              </ContentCard>
+            </div>
           )}
         </div>
       </PageBody>
@@ -1063,6 +1747,262 @@ function StepPlaceholder({
             {extraNote}
           </p>
         )}
+      </div>
+    </ContentCard>
+  );
+}
+
+/* ================================================================== */
+/* Tóm tắt điểm dưới bảng chấm                                         */
+/* ================================================================== */
+
+function ScoreSummary({
+  label,
+  score,
+  level,
+  likelihood,
+  impact,
+  compareScore,
+}: {
+  label: string;
+  score: number;
+  level: string;
+  likelihood: number;
+  impact: number;
+  compareScore?: number;
+}) {
+  /* diff dương là giảm, âm là tăng. Bản trước chỉ hiện khi giảm nên khi
+     điểm còn lại cao hơn vốn có thì người dùng mất hẳn tín hiệu. */
+  const diff = compareScore === undefined ? 0 : compareScore - score;
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-ctrl bg-surface-alt p-3">
+      <span className="text-[12px] text-text-secondary">{label}</span>
+      <RiskBadge level={level as never} score={score} />
+      <span className="text-[12px] text-text-secondary">
+        Khả năng {likelihood} × Ảnh hưởng {impact} = <b>{score} điểm</b>
+      </span>
+
+      {diff > 0 && (
+        <span className="inline-flex items-center gap-1 text-[12px] font-medium text-lv-low-text">
+          <IconCircleCheck size={14} />
+          Giảm {diff} điểm so với vốn có
+        </span>
+      )}
+
+      {diff < 0 && (
+        <span className="inline-flex items-center gap-1 text-[12px] font-medium text-lv-medium-text">
+          <IconAlertTriangle size={14} />
+          Tăng {Math.abs(diff)} điểm so với vốn có
+        </span>
+      )}
+
+      {diff === 0 && compareScore !== undefined && (
+        <span className="text-[12px] text-text-hint">
+          Giữ nguyên so với vốn có
+        </span>
+      )}
+    </div>
+  );
+}
+
+/* ================================================================== */
+/* Bước 4: chọn kiểm soát từ thư viện                                  */
+/* ================================================================== */
+
+function ControlPickerStep({
+  controls,
+  value,
+  noControlAccepted,
+  requiresControl,
+  unitName,
+  onChange,
+  onToggleAccept,
+}: {
+  controls: ControlLite[];
+  value: string[];
+  noControlAccepted: boolean;
+  requiresControl: boolean;
+  unitName: (id?: string) => string;
+  onChange: (ids: string[]) => void;
+  onToggleAccept: (v: boolean) => void;
+}) {
+  const [keyword, setKeyword] = useState("");
+  const [onlyKey, setOnlyKey] = useState(false);
+
+  const rows = useMemo(() => {
+    const kw = keyword.trim().toLowerCase();
+    return controls
+      .filter((c) => {
+        if (onlyKey && !c.isKeyControl) return false;
+        if (!kw) return true;
+        return `${c.code} ${c.name ?? ""} ${c.type ?? ""}`
+          .toLowerCase()
+          .includes(kw);
+      })
+      .slice()
+      .sort((a, b) => {
+        const pa = value.includes(a.id) ? 0 : 1;
+        const pb = value.includes(b.id) ? 0 : 1;
+        if (pa !== pb) return pa - pb;
+        return a.code.localeCompare(b.code);
+      });
+  }, [controls, keyword, onlyKey, value]);
+
+  function toggle(id: string) {
+    onChange(
+      value.includes(id) ? value.filter((x) => x !== id) : [...value, id],
+    );
+  }
+
+  const picked = controls.filter((c) => value.includes(c.id));
+  const pendingCount = picked.filter((c) =>
+    NOT_YET_ACTIVE.has(c.status ?? ""),
+  ).length;
+  const activeCount = picked.length - pendingCount;
+
+  return (
+    <ContentCard className="flex flex-col gap-4">
+      <StepTitle
+        index={4}
+        title="Chọn kiểm soát từ thư viện"
+        note="Chọn các kiểm soát đang bảo vệ rủi ro này. Đây là căn cứ để hệ thống gợi ý điểm còn lại ở bước 6"
+      />
+
+      <div className="flex flex-wrap items-center gap-2">
+        <SearchInput
+          value={keyword}
+          onChange={setKeyword}
+          placeholder="Tìm theo mã, tên kiểm soát"
+          width={320}
+        />
+        <Checkbox
+          label="Chỉ kiểm soát trọng yếu"
+          checked={onlyKey}
+          onChange={(e) => setOnlyKey(e.target.checked)}
+        />
+        <span className="ml-auto text-[12px] text-text-secondary">
+          Đã chọn <b className="text-text-primary">{value.length}</b>, được tính{" "}
+          <b className="text-text-primary">{activeCount}</b>
+        </span>
+      </div>
+
+      {requiresControl && activeCount === 0 && (
+        <div className="flex gap-2 rounded-ctrl border border-lv-critical-border bg-lv-critical-bg p-2.5 text-[12px] leading-4 text-lv-critical-text">
+          <IconShieldX size={16} className="mt-px shrink-0" />
+          <span>
+            Rủi ro vốn có mức Cao trở lên <b>bắt buộc</b> gắn ít nhất 1 kiểm
+            soát đã phê duyệt. Bước 6 sẽ mở ngay khi anh chọn được kiểm soát phù
+            hợp.
+          </span>
+        </div>
+      )}
+
+      {pendingCount > 0 && (
+        <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
+          <IconAlertTriangle size={16} className="mt-px shrink-0" />
+          <span>
+            Có <b>{pendingCount}</b> kiểm soát đang ở trạng thái Nháp hoặc Chờ
+            duyệt. Những kiểm soát này <b>chưa được tính</b> là đang bảo vệ rủi
+            ro, và cũng không tham gia vào gợi ý điểm còn lại.
+          </span>
+        </div>
+      )}
+
+      <div className="flex max-h-[420px] flex-col gap-1.5 overflow-y-auto rounded-ctrl border border-border-light p-2">
+        {rows.length === 0 ? (
+          <p className="px-2 py-6 text-center text-[12px] text-text-hint">
+            Không có kiểm soát phù hợp. Thử xoá từ khoá tìm kiếm.
+          </p>
+        ) : (
+          rows.map((c) => {
+            const active = value.includes(c.id);
+            const pending = NOT_YET_ACTIVE.has(c.status ?? "");
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => toggle(c.id)}
+                className={cn(
+                  "flex items-start gap-2.5 rounded-ctrl border px-2.5 py-2 text-left transition-all",
+                  active
+                    ? "border-brand bg-brand-light"
+                    : "border-border-light bg-white hover:bg-[#FAFAFA]",
+                )}
+              >
+                <span
+                  className={cn(
+                    "mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-ctrl border",
+                    active
+                      ? "border-brand bg-brand text-white"
+                      : "border-border-neutral bg-white",
+                  )}
+                >
+                  {active && <IconCheck size={13} />}
+                </span>
+
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <span className="text-[12px] font-medium text-brand">
+                      {c.code}
+                    </span>
+                    <span className="truncate text-[13px] text-text-primary">
+                      {c.name}
+                    </span>
+                    {c.isKeyControl && (
+                      <Badge tone="brand" size="sm">
+                        Trọng yếu
+                      </Badge>
+                    )}
+                    <EffectivenessBadge
+                      size="sm"
+                      short
+                      value={overallEffectivenessOf(c)}
+                    />
+                    {pending && (
+                      <Tooltip content="Chưa phê duyệt nên chưa tính là đang bảo vệ rủi ro">
+                        <Badge tone="neutral" size="sm">
+                          {c.status}
+                        </Badge>
+                      </Tooltip>
+                    )}
+                  </span>
+                  <span className="block truncate text-[12px] text-text-secondary">
+                    {c.type} · {c.nature} · {c.frequency} · {unitName(c.unitId)}
+                  </span>
+                </span>
+
+                <IconShieldCheck
+                  size={16}
+                  className={cn(
+                    "mt-0.5 shrink-0",
+                    active ? "text-brand" : "text-icon-neutral",
+                  )}
+                />
+              </button>
+            );
+          })
+        )}
+      </div>
+
+      {/* --------- Tuyên bố chấp nhận, chỉ cho rủi ro thấp --------- */}
+      <div
+        className={cn(
+          "flex flex-col gap-1 rounded-ctrl bg-surface-alt px-3 py-2.5",
+          requiresControl && "opacity-60",
+        )}
+      >
+        <Checkbox
+          label="Không áp dụng kiểm soát nào, chấp nhận rủi ro ở mức hiện tại"
+          checked={noControlAccepted}
+          disabled={requiresControl}
+          onChange={(e) => onToggleAccept(e.target.checked)}
+        />
+        <span className="pl-6 text-[11px] leading-4 text-text-hint">
+          {requiresControl
+            ? "Không dùng được vì rủi ro vốn có đang ở mức Cao trở lên, bắt buộc phải có kiểm soát."
+            : "Dùng khi rủi ro ở mức thấp và chi phí kiểm soát lớn hơn lợi ích. Hồ sơ vẫn ghi nhận là quyết định có chủ đích, không phải bỏ trống."}
+        </span>
       </div>
     </ContentCard>
   );
