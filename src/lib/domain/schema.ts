@@ -153,17 +153,35 @@ export const riskSchema = baseEntity.extend({
    */
   controlsChangedAt: z.string().optional(),
 
+  /* --- Lưu vết gợi ý của hệ thống ở bước Đánh giá còn lại --- */
+
+  /**
+   * Điểm khả năng mà hệ thống gợi ý tại thời điểm người dùng chấm.
+   *
+   * Lưu để so với giá trị người dùng chốt. Nếu tỷ lệ ghi đè gợi ý cao
+   * thì thuật toán cần hiệu chỉnh, chứ không phải người dùng làm sai.
+   * Đây là dữ liệu quan trọng cho round review với CRO.
+   */
+  suggestedResidualLikelihood: z.number().int().min(1).max(5).optional(),
+
+  /** Điểm ảnh hưởng mà hệ thống gợi ý, cùng mục đích như trên */
+  suggestedResidualImpact: z.number().int().min(1).max(5).optional(),
+
   inherentLikelihood: score,
   inherentImpact: score,
   residualLikelihood: score,
   residualImpact: score,
 
-    /**
-   * Tuyên bố chấp nhận rủi ro mà không áp dụng kiểm soát nào.
-   * Đây là quyết định CÓ CHỦ ĐÍCH, khác hoàn toàn với việc bỏ trống
-   * chưa gắn kiểm soát. Chỉ dùng được với rủi ro cố hữu mức thấp.
+  /**
+   * Tuyên bố không áp dụng kiểm soát nào, chấp nhận rủi ro ở mức hiện tại.
+   *
+   * Dùng .optional() chứ không .default(false) vì .default() làm kiểu
+   * output bắt buộc, kéo theo 10 bản ghi seed và 2 hàm nhân bản rủi ro
+   * đều phải khai thêm trường. Đúng quy ước đã chốt ở lô A cho trường
+   * bổ sung: mọi nơi đọc đều dùng !!r.noControlAccepted nên an toàn với
+   * undefined.
    */
-  noControlAccepted: z.boolean().default(false),
+  noControlAccepted: z.boolean().optional(),
 
 
   treatment: z.enum(RISK_TREATMENTS).default("Giảm thiểu"),
@@ -184,6 +202,9 @@ export type Risk = z.infer<typeof riskSchema>;
 export const riskFormSchema = riskSchema
   .omit(SYSTEM_FIELDS)
   .superRefine((v, ctx) => {
+    /* ==============================================================
+       1. Rủi ro không khoan nhượng cấm chọn phương án Chấp nhận
+       ============================================================== */
     if (v.isZeroTolerance && v.treatment === "Chấp nhận") {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -193,16 +214,39 @@ export const riskFormSchema = riskSchema
       });
     }
 
+    /* ==============================================================
+       2. Điểm còn lại CAO HƠN vốn có là trường hợp HỢP LỆ
+
+       Quyết định chốt ngày 18/08/2026: gỡ chặn cứng, vì thực tế
+       nghiệp vụ có ít nhất ba tình huống điểm còn lại cao hơn vốn có
+       một cách chính đáng:
+
+         - Kiểm soát mới làm phát sinh rủi ro thứ cấp, ví dụ thêm một
+           lớp phê duyệt thủ công thì tăng rủi ro chậm tiến độ
+         - Bối cảnh xấu đi giữa hai lần đánh giá, còn điểm vốn có thì
+           giữ nguyên vì đó là mốc lịch sử
+         - Đánh giá vốn có trước đây quá lạc quan, lần này chấm đúng
+           hơn nhưng không sửa lại mốc cũ để giữ vết
+
+       Thay chặn cứng bằng BẮT BUỘC NÊU CĂN CỨ. Không chặn quyền quyết
+       định của người đánh giá, chỉ chặn quyết định không có căn cứ,
+       để kiểm toán nội bộ đọc lại vẫn hiểu được.
+       ============================================================== */
     const inherent = v.inherentLikelihood * v.inherentImpact;
     const residual = v.residualLikelihood * v.residualImpact;
-    if (residual > inherent) {
+
+    if (residual > inherent && !(v.residualRationale ?? "").trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ["residualImpact"],
-        message: "Điểm rủi ro còn lại không được lớn hơn rủi ro cố hữu",
+        path: ["residualRationale"],
+        message:
+          "Điểm rủi ro còn lại cao hơn rủi ro vốn có. Đây là trường hợp hợp lệ nhưng bắt buộc nêu căn cứ đánh giá",
       });
     }
 
+    /* ==============================================================
+       3. Ngày rà soát phải sau ngày nhận diện
+       ============================================================== */
     if (v.reviewDate && v.reviewDate < v.identifiedDate) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -211,6 +255,9 @@ export const riskFormSchema = riskSchema
       });
     }
 
+    /* ==============================================================
+       4. Bắt buộc mô tả định hướng xử lý, trừ phương án Chấp nhận
+       ============================================================== */
     if (v.treatment !== "Chấp nhận" && !v.treatmentNote.trim()) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

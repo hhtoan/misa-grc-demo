@@ -193,12 +193,23 @@ export const CONTROL_EFFECTIVENESS_ORDER: Record<string, number> = {
    Giai đoạn vòng đời rủi ro, dùng cho wizard và LifecycleStepper
    ================================================================== */
 
+/* ==================================================================
+   Vòng đời rủi ro: 8 bước theo đặc tả chốt ngày 18/08/2026
+
+   Bước 5 Điểm yếu là TUỲ CHỌN, người dùng bỏ qua được.
+   Bước 8 Rà soát chỉ tồn tại trong wizard, không phải một giai đoạn
+   của bản ghi, nên dải vòng đời trên hồ sơ chỉ hiện 7 bước đầu.
+   ================================================================== */
+
 export const RISK_LIFECYCLE_STEPS = [
+  "Bối cảnh",
   "Nhận diện",
-  "Đánh giá cố hữu",
-  "Gắn kiểm soát",
+  "Đánh giá vốn có",
+  "Đánh giá kiểm soát",
+  "Điểm yếu",
   "Đánh giá còn lại",
-  "Ứng phó và theo dõi",
+  "Phương án xử lý",
+  "Rà soát và gửi",
 ] as const;
 
 export type RiskLifecycleStep = (typeof RISK_LIFECYCLE_STEPS)[number];

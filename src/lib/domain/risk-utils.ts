@@ -204,6 +204,8 @@ export function riskToForm(r: Risk): RiskFormValue {
     statusNote: r.statusNote,
     estimatedLoss: r.estimatedLoss,
     tags: [...(r.tags ?? [])],
+    suggestedResidualLikelihood: r.suggestedResidualLikelihood,
+    suggestedResidualImpact: r.suggestedResidualImpact,
   };
 }
 

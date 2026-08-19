@@ -194,8 +194,8 @@ export default function RiskLifecycleBar({
           <IconCalendarClock size={15} className="shrink-0" />
           <span className="min-w-0 flex-1">
             Đã quá kỳ đánh giá lại theo kế hoạch, hạn{" "}
-            <b>{formatDate(risk.nextReviewDate ?? "")}</b>. Số liệu hiện tại có
-            thể không còn phản ánh đúng thực tế.
+            <b>{formatDate(risk.reviewDate ?? "")}</b>. Số liệu hiện tại có thể
+            không còn phản ánh đúng thực tế.
           </span>
         </div>
       )}
