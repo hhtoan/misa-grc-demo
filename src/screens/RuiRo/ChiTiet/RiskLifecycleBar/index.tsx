@@ -16,7 +16,7 @@ import {
   Tooltip,
 } from "@/components/ui";
 import { ContentCard } from "@/components/layout";
-import { controlRepo, useCollection } from "@/lib/db";
+import { controlRepo, useCollection, deficiencyRepo } from "@/lib/db";
 import {
   isReviewOverdue,
   riskMissingInfo,
@@ -55,15 +55,39 @@ export interface RiskLifecycleBarProps {
   assessorName?: string;
   /** Cho phép bấm vào bước để nhảy sang form sửa */
   editable?: boolean;
+  /**
+   * Số điểm yếu đang gắn với rủi ro này.
+   *
+   * Bước Điểm yếu là bước tuỳ chọn, nên trạng thái của nó suy từ dữ liệu
+   * thật: có điểm yếu thì done, không có thì skipped màu xám. Tô xanh một
+   * bước người dùng chưa làm là báo sai.
+   */
+  deficiencyCount?: number;
 }
 
 export default function RiskLifecycleBar({
   risk,
   assessorName,
   editable = true,
+  deficiencyCount,
 }: RiskLifecycleBarProps) {
   const router = useRouter();
   const controls = useCollection(controlRepo) as unknown as ControlLite[];
+  const deficiencies = useCollection(deficiencyRepo) as unknown as {
+    riskId?: string;
+  }[];
+
+  /**
+   * Ưu tiên số do màn hình cha truyền vào để tránh đếm lại, nhưng vẫn tự
+   * đếm được nếu nơi gọi chưa cập nhật. Nhờ vậy component dùng được ở cả
+   * hồ sơ rủi ro và các chỗ nhúng khác mà không bắt buộc sửa nơi gọi.
+   */
+  const weaknessCount = useMemo(
+    () =>
+      deficiencyCount ??
+      deficiencies.filter((d) => d.riskId === risk.id).length,
+    [deficiencyCount, deficiencies, risk.id],
+  );
 
   /* ------------------- Số kiểm soát đang phủ ------------------- */
 
@@ -81,7 +105,7 @@ export default function RiskLifecycleBar({
 
   const steps = useMemo(
     () =>
-      riskStepViews(risk, controlCount).map((s) => ({
+      riskStepViews(risk, controlCount, weaknessCount).map((s) => ({
         ...s,
         onClick: editable
           ? () => router.push(`/rui-ro/so-dang-ky/${risk.code}/sua`)
@@ -128,8 +152,9 @@ export default function RiskLifecycleBar({
         </span>
       </div>
 
-      {/* ------------------------ Dải 5 bước ----------------------- */}
-      <LifecycleStepper steps={steps} />
+      {/* 7 bước × 116px = 928px sẽ chật ở màn 1366px, nên dùng compact
+          (88px mỗi bước, tổng 704px). Mô tả bước vẫn xem được qua tooltip. */}
+      <LifecycleStepper steps={steps} size="compact" />
 
       {/* --------------- Dấu vết chấm điểm còn lại ----------------- */}
       <div
