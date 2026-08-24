@@ -21,6 +21,7 @@ import {
   RISK_SOURCES,
   RISK_STATUSES,
   RISK_TREATMENTS,
+  CONTROL_RELEVANCE,
 } from "./enums";
 import type { KriStatus } from "./enums";
 
@@ -200,7 +201,6 @@ export const riskSchema = baseEntity.extend({
    */
   noControlAccepted: z.boolean().optional(),
 
-
   treatment: z.enum(RISK_TREATMENTS).default("Giảm thiểu"),
   treatmentNote: z.string().default(""),
   /** Rủi ro không khoan nhượng: cấm chọn phương án Chấp nhận */
@@ -209,6 +209,22 @@ export const riskSchema = baseEntity.extend({
 
   identifiedDate: required("Bắt buộc nhập ngày nhận diện"),
   reviewDate: z.string().default(""),
+  /**
+   * Hồ sơ đang khai dở trong wizard, chưa bấm Ghi nhận ở bước 8.
+   *
+   * Vì sao cần cờ riêng thay vì dùng status: wizard tạo bản ghi ngay từ
+   * bước 2 để các bước sau có riskId thật mà gắn kiểm soát, điểm yếu và
+   * KPPN. Bản ghi đó và bản ghi đã khai xong CÙNG ở trạng thái Nháp, vì
+   * việc trình duyệt là thao tác riêng làm ở hồ sơ.
+   *
+   * Nhét dấu này vào status sẽ trộn hai khái niệm khác nhau: một cái là
+   * tiến độ nhập liệu, một cái là trạng thái phê duyệt của hồ sơ.
+   *
+   * Dùng .optional() theo đúng quy ước: repo.create chỉ spread input,
+   * không parse qua zod, nên .default() sẽ làm kiểu output thành bắt
+   * buộc và kéo theo lỗi TS2739 ở toàn bộ seed.
+   */
+  isWizardDraft: z.boolean().optional(),
   status: z.enum(RISK_STATUSES).default("Nháp"),
   statusNote: z.string().default(""),
   estimatedLoss: money,
@@ -454,6 +470,34 @@ export const controlExceptionFormSchema = controlExceptionSchema
     }
   });
 export type ControlExceptionForm = z.infer<typeof controlExceptionFormSchema>;
+
+/* ==================================================================
+   Liên kết Rủi ro và Kiểm soát, kèm thuộc tính của quan hệ
+
+   Vì sao tách entity riêng thay vì đổi control.riskIds thành mảng
+   object: riskIds đang được đọc ở khoảng một chục chỗ và có rule .min(1)
+   trong controlSchema. Đổi cấu trúc sẽ kéo theo sửa toàn bộ seed và mọi
+   màn hình đọc quan hệ này.
+
+   Cách hiện tại giữ riskIds làm QUAN HỆ CƠ BẢN, còn bản ghi link chỉ
+   lưu THUỘC TÍNH của quan hệ. Không có bản ghi link nghĩa là chưa đánh
+   giá mức phù hợp, không phá gì đang chạy.
+   ================================================================== */
+
+export const riskControlLinkSchema = baseEntity.extend({
+  riskId: required("Bắt buộc gắn rủi ro"),
+  controlId: required("Bắt buộc gắn kiểm soát"),
+
+  /** Để trống nghĩa là chưa đánh giá mức phù hợp */
+  relevance: z.enum(CONTROL_RELEVANCE).optional(),
+
+  /** Lý do kết luận, bắt buộc khi chọn Không phù hợp, kiểm tra ở tầng form */
+  relevanceNote: z.string().optional(),
+
+  assessedAt: z.string().optional(),
+  assessedBy: z.string().optional(),
+});
+export type RiskControlLink = z.infer<typeof riskControlLinkSchema>;
 
 /* ==================================================================
    Điểm yếu kiểm soát

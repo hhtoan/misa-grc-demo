@@ -21,6 +21,7 @@ import {
   overallEffectivenessOf,
 } from "@/lib/domain/control-utils";
 import { cn } from "@/lib/cn";
+import { notOperatingReason } from "@/lib/domain/risk-control-link";
 import { isControlPending, type ControlLite } from "../types";
 import StepTitle from "./StepTitle";
 
@@ -120,8 +121,8 @@ export default function ControlPickerStep({
           onChange={(e) => setOnlyWorking(e.target.checked)}
         />
         <span className="ml-auto text-[12px] text-text-secondary">
-          Đã chọn <b className="text-text-primary">{value.length}</b>, trong đó{" "}
-          <b className="text-text-primary">{activeCount}</b> đã phê duyệt
+          Đã chọn <b className="text-text-primary">{value.length}</b>, được tính{" "}
+          <b className="text-text-primary">{activeCount}</b>
         </span>
       </div>
 
@@ -148,9 +149,11 @@ export default function ControlPickerStep({
         <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
           <IconAlertTriangle size={16} className="mt-px shrink-0" />
           <span>
-            Có <b>{pendingCount}</b> kiểm soát đang ở trạng thái Nháp hoặc Chờ
-            duyệt. Những kiểm soát này <b>chưa được tính</b> là đang bảo vệ rủi
-            ro, và cũng không vào phép tính gợi ý điểm còn lại.
+            Có <b>{pendingCount}</b> kiểm soát <b>chưa đang vận hành</b>, gồm
+            các trạng thái Nháp, Chờ duyệt, Tạm ngưng hoặc Hết hiệu lực. Những
+            kiểm soát này chưa được tính là đang bảo vệ rủi ro, và cũng không
+            vào phép tính gợi ý điểm còn lại. Rê chuột lên nhãn trạng thái của
+            từng dòng để xem lý do cụ thể.
           </span>
         </div>
       )}
@@ -203,7 +206,12 @@ export default function ControlPickerStep({
                       </Badge>
                     )}
                     {pending && (
-                      <Tooltip content="Chưa phê duyệt nên chưa tính là đang bảo vệ rủi ro">
+                      <Tooltip
+                        content={
+                          notOperatingReason(c.status) ??
+                          "Chưa được tính là đang bảo vệ rủi ro"
+                        }
+                      >
                         <Badge tone="neutral" size="sm">
                           {c.status}
                         </Badge>

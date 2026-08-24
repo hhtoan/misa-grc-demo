@@ -6,6 +6,8 @@
    schema Control có thêm trường thì vẫn nhận được mà không vỡ build.
    ================================================================== */
 
+import { isControlOperating } from "@/lib/domain/risk-control-link";
+
 export interface ControlLite {
   id: string;
   code: string;
@@ -53,9 +55,16 @@ export const EMPTY_EXTRA: WizardExtra = {
   touched: [],
 };
 
-/** Kiểm soát chưa phê duyệt thì chưa tính là đang bảo vệ rủi ro */
-export const NOT_YET_ACTIVE = new Set(["Nháp", "Chờ duyệt"]);
-
+/**
+ * Kiểm soát chưa được tính là đang bảo vệ rủi ro.
+ *
+ * Bản trước khai tập NOT_YET_ACTIVE gồm Nháp và Chờ duyệt, nên kiểm
+ * soát Tạm ngưng và Hết hiệu lực vẫn được tính. Cả hai đều đã ngừng
+ * chạy, nên kết luận theo hướng lạc quan hơn thực tế.
+ *
+ * Giờ hỏi thẳng tầng domain qua isControlOperating, để chỉ có MỘT chỗ
+ * quyết định thế nào là đang vận hành.
+ */
 export function isControlPending(c: ControlLite): boolean {
-  return NOT_YET_ACTIVE.has(c.status ?? "");
+  return !isControlOperating(c.status);
 }

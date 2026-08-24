@@ -60,6 +60,8 @@ export interface RiskLifecycleInput {
 
   /* --- Tuyên bố không áp dụng kiểm soát --- */
   noControlAccepted?: boolean;
+  /* --- Hồ sơ đang khai dở trong wizard, chưa bấm Ghi nhận --- */
+  isWizardDraft?: boolean;
 }
 
 /** Cấu trúc trùng khớp với MissingItem của MissingInfoCell */
@@ -486,6 +488,17 @@ export function riskMissingInfo(
   const out: RiskMissingItem[] = [];
   if (isRiskClosed(r)) return out;
 
+  /* Hồ sơ khai dở thì mọi mục thiếu đều là bình thường, nêu một mục duy
+     nhất thay vì liệt kê 5 tới 6 chip đỏ làm bảng trông như đầy lỗi */
+  if (r.isWizardDraft)
+    return [
+      {
+        label: "Đang khai dở",
+        tone: "info",
+        hint: "Hồ sơ được tạo trong wizard nhưng chưa hoàn tất khai báo. Mở lại để khai tiếp, hoặc xoá nếu không dùng nữa",
+      },
+    ];
+
   /* ---------------- Bước 1: bối cảnh ---------------- */
 
   const hasObjective = Array.isArray(r.objectiveIds)
@@ -698,6 +711,11 @@ export const RISK_QUICK_FILTERS: QuickFilterOption[] = [
     label: "Quá kỳ rà soát",
     hint: "Đã qua ngày rà soát lại theo kế hoạch",
   },
+  {
+    key: "wizard-draft",
+    label: "Đang khai dở",
+    hint: "Hồ sơ được tạo trong wizard nhưng chưa hoàn tất khai báo. Xoá được nếu không dùng nữa",
+  },
 ];
 
 /** Một rủi ro có khớp quick filter đang chọn không */
@@ -715,6 +733,8 @@ export function matchRiskQuickFilter(
     return isResidualAssessed(r) && isResidualStale(r);
 
   if (key === "review-overdue") return isReviewOverdue(r);
+
+  if (key === "wizard-draft") return !!r.isWizardDraft;
 
   /* Còn lại là 6 nhóm nghiệp vụ */
   return riskGroupOf(r, controlCount) === key;

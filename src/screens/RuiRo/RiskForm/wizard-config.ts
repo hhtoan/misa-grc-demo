@@ -232,15 +232,20 @@ export function isDefaultScore(
 /* ------------------------------------------------------------------ */
 
 /**
- * Khoá nháp phiên bản 2.
+ * Khoá nháp phiên bản 3.
  *
- * Bump từ v1 vì cấu trúc wizard đổi từ 5 bước sang 8 bước và state đổi
- * từ WizardValue sang RiskFormValue. Nháp cũ nạp vào form mới sẽ thiếu
- * objectiveIds, identifiedDate, treatmentNote và gây lỗi runtime. Nháp
- * cũ bị xoá, chấp nhận được vì đây là bản demo.
+ * Bump từ v2 vì luồng lưu đã đổi: wizard tạo bản ghi thật ở bước 2 thay
+ * vì giữ toàn bộ trong trình duyệt. Nháp v2 không có riskId, nạp vào
+ * luồng mới sẽ tạo bản ghi thứ hai và người dùng có hai hồ sơ trùng nội
+ * dung mà không hiểu vì sao.
  */
-export const DRAFT_KEY = "misa-grc-risk-wizard-draft-v2";
-const DRAFT_KEY_LEGACY = "misa-grc-risk-wizard-draft";
+export const DRAFT_KEY = "misa-grc-risk-wizard-draft-v3";
+
+/** Mọi khoá đời trước, dọn khi đọc nháp để không tồn dữ liệu rác */
+const DRAFT_KEY_LEGACY = [
+  "misa-grc-risk-wizard-draft",
+  "misa-grc-risk-wizard-draft-v2",
+];
 
 /** Nghi ngờ điểm yếu khai ở bước 5, không thuộc riskFormSchema */
 export interface DraftWeakness {
@@ -257,12 +262,25 @@ export interface DraftPayload {
   weakness?: DraftWeakness;
   stage: RiskStageKey;
   savedAt: string;
+
+  /**
+   * Id bản ghi rủi ro đã tạo ở bước 2.
+   *
+   * Từ lô E2c, nháp trong trình duyệt CHỈ dùng cho bước 1 và bước 2. Qua
+   * bước 2 là hệ thống tạo bản ghi thật ở trạng thái Nháp, và nháp cục
+   * bộ bị xoá ngay để tránh hai nguồn sự thật song song.
+   *
+   * Trường này chỉ tồn tại cho trường hợp hiếm: nháp được ghi đúng lúc
+   * bản ghi vừa tạo xong. Nạp lại thì wizard nối tiếp vào bản ghi đó
+   * thay vì tạo bản ghi thứ hai.
+   */
+  riskId?: string;
 }
 
 export function readDraft(): DraftPayload | undefined {
   try {
-    /* Dọn nháp phiên bản cũ, hình dạng không còn tương thích */
-    window.localStorage.removeItem(DRAFT_KEY_LEGACY);
+    /* Dọn mọi nháp phiên bản cũ, hình dạng không còn tương thích */
+    DRAFT_KEY_LEGACY.forEach((k) => window.localStorage.removeItem(k));
 
     const raw = window.localStorage.getItem(DRAFT_KEY);
     if (!raw) return undefined;

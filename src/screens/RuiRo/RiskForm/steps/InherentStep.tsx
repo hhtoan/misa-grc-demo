@@ -147,7 +147,11 @@ export default function InherentStep({
           min={0}
           step={1000000}
           placeholder="Để trống nếu chưa lượng hoá được"
-          value={form.estimatedLoss === null ? "" : String(form.estimatedLoss)}
+          value={
+            form.estimatedLoss === null || form.estimatedLoss === undefined
+              ? ""
+              : String(form.estimatedLoss)
+          }
           error={errors.estimatedLoss}
           hint={
             errors.estimatedLoss

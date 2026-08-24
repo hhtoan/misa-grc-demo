@@ -27,6 +27,33 @@ export const CONTROL_STATUSES = [
 ] as const;
 export type ControlStatus = (typeof CONTROL_STATUSES)[number];
 
+/**
+ * Trạng thái mà kiểm soát THỰC SỰ đang vận hành.
+ *
+ * Sửa một lỗi tồn đọng từ lô D: khi đó chỉ loại Nháp và Chờ duyệt, nên
+ * kiểm soát Tạm ngưng và Hết hiệu lực vẫn được tính là đang bảo vệ rủi
+ * ro. Cả hai trạng thái ấy đều nghĩa là kiểm soát KHÔNG còn chạy, nên
+ * gợi ý điểm còn lại đang lạc quan hơn thực tế.
+ *
+ * Khai theo hướng DANH SÁCH TRẮNG: thêm trạng thái mới vào enum sẽ mặc
+ * định không được tính, an toàn hơn là quên bổ sung vào danh sách đen.
+ */
+export const CONTROL_OPERATING_STATUSES = ["Đang hiệu lực"] as const;
+
+/**
+ * Mức phù hợp của một kiểm soát với MỘT rủi ro cụ thể.
+ *
+ * Khác hoàn toàn với hiệu lực kiểm soát. Một kiểm soát có thể hoàn toàn
+ * hiệu quả nhưng bị gắn nhầm vào rủi ro nó không bảo vệ, và đó đúng là
+ * loại sai sót kiểm toán nội bộ hay phát hiện.
+ */
+export const CONTROL_RELEVANCE = [
+  "Phù hợp",
+  "Phù hợp một phần",
+  "Không phù hợp",
+] as const;
+export type ControlRelevance = (typeof CONTROL_RELEVANCE)[number];
+
 export const DEFICIENCY_STATUSES = [
   "Mới ghi nhận",
   "Đang phân tích",

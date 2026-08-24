@@ -18,6 +18,7 @@ import type {
   Process,
   Risk,
   Unit,
+  RiskControlLink,
 } from "@/lib/domain/schema";
 
 export * from "./keys";
@@ -60,6 +61,10 @@ export const controlTestRepo = createRepository<ControlTest>(
 export const controlExceptionRepo = createRepository<ControlException>(
   KEYS.controlExceptions,
   CODE_PREFIX.controlException,
+);
+export const riskControlLinkRepo = createRepository<RiskControlLink>(
+  KEYS.riskControlLinks,
+  CODE_PREFIX.riskControlLink,
 );
 export const deficiencyRepo = createRepository<Deficiency>(
   KEYS.deficiencies,

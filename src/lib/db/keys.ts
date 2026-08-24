@@ -1,7 +1,7 @@
 export const DB_PREFIX = "misa-grc";
 
 /** Tăng số này khi đổi cấu trúc dữ liệu để buộc seed lại */
-export const DATA_VERSION = 1;
+export const DATA_VERSION = 2;
 
 export const KEYS = {
   version: `${DB_PREFIX}:version`,
@@ -17,6 +17,7 @@ export const KEYS = {
   controls: `${DB_PREFIX}:controls`,
   controlTests: `${DB_PREFIX}:control-tests`,
   controlExceptions: `${DB_PREFIX}:control-exceptions`,
+  riskControlLinks: `${DB_PREFIX}:risk-control-links`,
   deficiencies: `${DB_PREFIX}:deficiencies`,
   kppns: `${DB_PREFIX}:kppns`,
   events: `${DB_PREFIX}:events`,
@@ -32,6 +33,7 @@ export const CODE_PREFIX = {
   control: "CTRL",
   controlTest: "TEST",
   controlException: "EXC",
+  riskControlLink: "RCL",
   deficiency: "DEF",
   kppn: "KPPN",
   event: "EVT",

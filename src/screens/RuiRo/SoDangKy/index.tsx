@@ -290,7 +290,9 @@ export default function SoDangKyRuiRoScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [risks, unitId, controlCountOf]);
 
-  const quickFilterItems = RISK_QUICK_FILTERS.map((f) => ({
+  const quickFilterItems = RISK_QUICK_FILTERS.filter(
+    (f) => f.key !== "wizard-draft" || (lifecycleCounts[f.key] ?? 0) > 0,
+  ).map((f) => ({
     key: f.key,
     label: f.label,
     hint: f.hint,

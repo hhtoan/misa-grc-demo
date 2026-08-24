@@ -105,8 +105,14 @@ export const REDUCTION_STEPS: Record<string, number> = {
 export const SCORE_THRESHOLD_EFFECTIVE = 4.0;
 export const SCORE_THRESHOLD_PARTIAL = 2.0;
 
-/** Kiểm soát chưa phê duyệt thì chưa được tính là đang bảo vệ rủi ro */
-const NOT_YET_ACTIVE = new Set(["Nháp", "Chờ duyệt"]);
+/**
+ * Kiểm soát đang thực sự vận hành.
+ *
+ * Bản trước chỉ loại Nháp và Chờ duyệt, nên kiểm soát Tạm ngưng và Hết
+ * hiệu lực vẫn được tính là đang bảo vệ rủi ro. Cả hai đều đã ngừng
+ * chạy, nên gợi ý điểm còn lại đang lạc quan hơn thực tế.
+ */
+const OPERATING = new Set(["Đang hiệu lực"]);
 
 /* ------------------------------------------------------------------ */
 /* Điều kiện được tính vào phép tổng hợp                               */
@@ -114,7 +120,7 @@ const NOT_YET_ACTIVE = new Set(["Nháp", "Chờ duyệt"]);
 
 /** Kiểm soát đã phê duyệt và còn hiệu lực chưa */
 export function isControlApproved(c: SuggestionControlInput): boolean {
-  return !NOT_YET_ACTIVE.has(c.status ?? "");
+  return OPERATING.has(c.status ?? "");
 }
 
 /** Đã có kết luận hiệu lực chưa */
@@ -134,8 +140,14 @@ export function isControlCounted(c: SuggestionControlInput): boolean {
 export function exclusionReasonOf(
   c: SuggestionControlInput,
 ): string | undefined {
-  if (!isControlApproved(c))
+  if (!isControlApproved(c)) {
+    const s = c.status ?? "";
+    if (s === "Tạm ngưng")
+      return "Đang tạm ngưng vận hành nên không bảo vệ rủi ro ở thời điểm này";
+    if (s === "Hết hiệu lực")
+      return "Đã hết hiệu lực, cần thay bằng kiểm soát khác";
     return "Chưa phê duyệt nên chưa được tính là đang vận hành";
+  }
   if (!isControlAssessed(c))
     return "Chưa có kết luận hiệu lực nên chưa có bằng chứng bảo vệ rủi ro";
   return undefined;
