@@ -116,13 +116,15 @@ export const RISK_STAGES: RiskStageMeta[] = [
   },
   {
     key: "controls",
-    label: "Chọn kiểm soát",
-    description: "Gắn kiểm soát đang bảo vệ rủi ro này",
+    label: "Đánh giá kiểm soát hiện hữu",
+    description:
+      "Rà từng kiểm soát đang bảo vệ rủi ro: có xử lý đúng rủi ro này không, thực tế còn chạy tốt không",
   },
   {
     key: "weakness",
-    label: "Điểm yếu",
-    description: "Ghi nhận nghi ngờ điểm yếu, có thể bỏ qua",
+    label: "Điểm yếu phát hiện",
+    description:
+      "Tổng hợp điểm yếu ghi nhận khi đánh giá kiểm soát, bổ sung thêm nếu cần",
     optional: true,
   },
   {
@@ -216,14 +218,41 @@ export function isInherentDone(r: RiskLifecycleInput): boolean {
   return !!r.inherentLikelihood && !!r.inherentImpact;
 }
 
-/** Bước 4 Chọn kiểm soát */
+/**
+ * Bước 4 Đánh giá kiểm soát hiện hữu.
+ *
+ * Điều kiện hoàn tất CHẶT HƠN trước: không chỉ cần gắn kiểm soát, mà mọi
+ * kiểm soát đã gắn phải được kết luận mức phù hợp với rủi ro này.
+ *
+ * Lý do: một kiểm soát hoàn toàn hiệu quả vẫn có thể bị gắn nhầm vào một
+ * rủi ro nó không hề bảo vệ. Trước đây hệ thống chỉ hỏi "kiểm soát này có
+ * hiệu quả không", chưa bao giờ hỏi "nó có xử lý đúng rủi ro này không".
+ * Hai câu đó khác nhau hoàn toàn.
+ *
+ * Tham số assessedCount để trống thì hàm giữ nguyên hành vi cũ, nên mọi
+ * chỗ gọi hiện có không phải sửa gì.
+ */
 export function isControlStageDone(
   r: RiskLifecycleInput,
   controlCount: number,
+  assessedCount?: number,
 ): boolean {
-  if (controlCount > 0) return true;
-  /* Rủi ro thấp được phép tuyên bố chấp nhận, không áp dụng kiểm soát */
-  return !!r.noControlAccepted;
+  if (controlCount === 0) {
+    /* Rủi ro thấp được phép tuyên bố chấp nhận, không áp dụng kiểm soát */
+    return !!r.noControlAccepted;
+  }
+
+  const assessed = assessedCount ?? controlCount;
+  return assessed >= controlCount;
+}
+
+/** Còn bao nhiêu kiểm soát đã gắn nhưng chưa kết luận mức phù hợp */
+export function unassessedControlCount(
+  controlCount: number,
+  assessedCount?: number,
+): number {
+  if (assessedCount === undefined) return 0;
+  return Math.max(0, controlCount - assessedCount);
 }
 
 /**
@@ -272,15 +301,23 @@ export function requiresControl(r: RiskLifecycleInput): boolean {
  * này, vì nó tuỳ chọn. Nếu đưa vào, người dùng bỏ qua bước 5 sẽ bị
  * khoá luôn bước 6, đúng cái bẫy đã nêu trong phân tích.
  */
+/**
+ * Giai đoạn mà rủi ro đang dừng lại.
+ *
+ * Lưu ý quan trọng: bước weakness KHÔNG xuất hiện trong chuỗi kiểm tra
+ * này, vì nó tuỳ chọn. Nếu đưa vào, người dùng bỏ qua bước 5 sẽ bị khoá
+ * luôn bước 6.
+ */
 export function riskStageOf(
   r: RiskLifecycleInput,
   controlCount: number,
+  assessedCount?: number,
 ): RiskStageKey {
   if (isRiskClosed(r)) return "closed";
   if (!isContextDone(r)) return "context";
   if (!isIdentifyDone(r)) return "identify";
   if (!isInherentDone(r)) return "inherent";
-  if (!isControlStageDone(r, controlCount)) return "controls";
+  if (!isControlStageDone(r, controlCount, assessedCount)) return "controls";
   if (!isResidualDone(r)) return "residual";
   if (!isTreatDone(r)) return "treat";
   return "treat";
@@ -339,65 +376,102 @@ export interface RiskStepView {
  *                        gọi hàm tự đếm và truyền vào, để file domain
  *                        không phải phụ thuộc repo.
  */
+
+/**
+ * Dựng 7 bước cho dải vòng đời trên hồ sơ rủi ro.
+ *
+ * Bước Rà soát bị loại vì có cờ wizardOnly, đó là thao tác của wizard chứ
+ * không phải trạng thái của bản ghi.
+ *
+ * Bước Điểm yếu hiển thị theo dữ liệu thật:
+ *   - Có điểm yếu gắn với rủi ro  : done
+ *   - Không có                     : skipped, màu xám nhạt
+ *
+ * Tham số assessedCount là số kiểm soát đã kết luận mức phù hợp. Để trống
+ * thì bước 4 giữ hành vi cũ, chỉ cần có kiểm soát là xong.
+ */
 export function riskStepViews(
   r: RiskLifecycleInput,
   controlCount: number,
   deficiencyCount = 0,
+  assessedCount?: number,
 ): RiskStepView[] {
-  const stage = riskStageOf(r, controlCount);
+  const stage = riskStageOf(r, controlCount, assessedCount);
   const closed = stage === "closed";
 
   const doneMap: Record<RiskStageKey, boolean> = {
     context: isContextDone(r),
     identify: isIdentifyDone(r),
     inherent: isInherentDone(r),
-    controls: isControlStageDone(r, controlCount),
+    controls: isControlStageDone(r, controlCount, assessedCount),
     weakness: deficiencyCount > 0,
     residual: isResidualDone(r),
     treat: isTreatDone(r),
-    review: closed,
-    closed,
+    review: false,
+    closed: closed,
   };
 
   return LIFECYCLE_STAGES.map((s) => {
-    /* --- Trạng thái hình ảnh của bước --- */
     let state: StepStateValue = "todo";
 
     if (doneMap[s.key]) state = "done";
     else if (s.optional) state = "skipped";
     else if (!closed && s.key === stage) state = "current";
 
-    /* --- Dấu cảnh báo trên bước --- */
-    let warning: string | undefined;
-
-    if (s.key === "context" && !doneMap.context)
-      warning = "Bắt buộc gắn mục tiêu";
-
-    if (s.key === "controls" && !doneMap.controls && requiresControl(r))
-      warning = "Bắt buộc có kiểm soát";
-
-    if (s.key === "residual" && isResidualAssessed(r) && isResidualStale(r))
-      warning = "Điểm còn lại đã cũ";
-
-    if (s.key === "treat" && doneMap.treat && isReviewOverdue(r))
-      warning = "Quá kỳ rà soát";
-
-    /* --- Mô tả riêng cho bước tuỳ chọn --- */
-    const description =
-      s.optional && !doneMap[s.key]
-        ? "Đã bỏ qua, ghi nhận sau cũng được"
-        : s.optional && doneMap[s.key]
-          ? `Đã ghi nhận ${deficiencyCount} điểm yếu`
-          : s.description;
+    /* Rủi ro đã đóng thì mọi bước chưa xong coi như bỏ qua, không hiện
+       màu chờ xử lý gây hiểu nhầm là còn việc phải làm */
+    if (closed && state === "todo") state = "skipped";
 
     return {
       key: s.key,
       label: s.label,
-      description,
+      description: s.description,
       state,
-      warning,
+      warning: warningOfStage(s.key, r, controlCount, assessedCount),
     };
   });
+}
+
+/** Cảnh báo hiện ở góc vòng tròn của từng bước */
+function warningOfStage(
+  key: RiskStageKey,
+  r: RiskLifecycleInput,
+  controlCount: number,
+  assessedCount?: number,
+): string | undefined {
+  if (isRiskClosed(r)) return undefined;
+
+  if (key === "context" && !isContextDone(r)) {
+    const noObjective =
+      !Array.isArray(r.objectiveIds) || r.objectiveIds.length === 0;
+    return noObjective ? "Bắt buộc gắn mục tiêu" : "Thiếu đơn vị";
+  }
+
+  if (key === "controls") {
+    const pending = unassessedControlCount(controlCount, assessedCount);
+
+    /* Đã gắn kiểm soát nhưng chưa kết luận mức phù hợp. Đây là trạng thái
+       mới sinh ra ở đợt này, phải phân biệt rõ với việc chưa gắn kiểm
+       soát nào, vì hai việc phải làm hoàn toàn khác nhau: một cái là đi
+       tìm kiểm soát, một cái là ngồi xuống kết luận về kiểm soát đã có */
+    if (pending > 0) return `Còn ${pending} kiểm soát chưa đánh giá`;
+
+    if (!isControlStageDone(r, controlCount, assessedCount))
+      return requiresControl(r) ? "Bắt buộc có kiểm soát" : undefined;
+  }
+
+  if (key === "residual" && isResidualAssessed(r) && isResidualStale(r)) {
+    return "Điểm còn lại đã cũ";
+  }
+
+  if (key === "treat") {
+    if (isTreatDone(r) && isReviewOverdue(r)) return "Quá kỳ rà soát";
+    const t = (r.treatment ?? "").trim();
+    if (t && t !== "Chấp nhận" && !(r.treatmentNote ?? "").trim())
+      return "Thiếu định hướng xử lý";
+  }
+
+  return undefined;
 }
 
 /* ------------------------------------------------------------------ */
@@ -407,6 +481,7 @@ export function riskStepViews(
 export function riskMissingInfo(
   r: RiskLifecycleInput,
   controlCount: number,
+  assessedCount?: number,
 ): RiskMissingItem[] {
   const out: RiskMissingItem[] = [];
   if (isRiskClosed(r)) return out;
@@ -452,6 +527,17 @@ export function riskMissingInfo(
     });
 
   /* ---------------- Bước 4: kiểm soát ---------------- */
+
+  /* ------------- Bước 4: đánh giá kiểm soát hiện hữu ------------- */
+
+  const pendingAssess = unassessedControlCount(controlCount, assessedCount);
+
+  if (pendingAssess > 0)
+    out.push({
+      label: `Còn ${pendingAssess} kiểm soát chưa đánh giá`,
+      tone: "warning",
+      hint: "Kiểm soát đã gắn nhưng chưa kết luận có xử lý đúng rủi ro này không. Chưa có kết luận thì gợi ý điểm còn lại ở bước 6 sẽ tính trên căn cứ chưa đầy đủ",
+    });
 
   if (controlCount === 0 && !r.noControlAccepted)
     out.push({
@@ -576,9 +662,9 @@ export const RISK_QUICK_FILTERS: QuickFilterOption[] = [
     hint: "Đã khai báo xong nhưng chưa có điểm rủi ro vốn có",
   },
   {
-    key: "controlling",
-    label: "Chờ gắn kiểm soát",
-    hint: "Đã chấm điểm vốn có nhưng chưa gắn kiểm soát nào",
+    key: "control",
+    label: "Đánh giá kiểm soát",
+    hint: "Đã chấm điểm vốn có, đang rà soát kiểm soát hiện hữu",
   },
   {
     key: "residual",
