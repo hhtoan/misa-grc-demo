@@ -16,7 +16,12 @@ import {
   Tooltip,
 } from "@/components/ui";
 import { ContentCard } from "@/components/layout";
-import { controlRepo, useCollection, deficiencyRepo } from "@/lib/db";
+import {
+  controlRepo,
+  deficiencyRepo,
+  riskControlLinkRepo,
+  useCollection,
+} from "@/lib/db";
 import {
   isReviewOverdue,
   riskMissingInfo,
@@ -89,6 +94,28 @@ export default function RiskLifecycleBar({
     [deficiencyCount, deficiencies, risk.id],
   );
 
+  const links = useCollection(riskControlLinkRepo) as unknown as {
+    riskId: string;
+    controlId: string;
+    relevance?: string;
+  }[];
+
+  /**
+   * Số kiểm soát của rủi ro này đã được kết luận mức phù hợp.
+   *
+   * Bước 4 giờ chỉ xong khi MỌI kiểm soát đã gắn đều có kết luận. Không
+   * truyền con số này thì dải vòng đời báo bước 4 đã xong ngay khi vừa
+   * gắn kiểm soát, trong khi wizard vẫn đang chặn không cho qua bước 6.
+   * Hai chỗ nói hai điều khác nhau về cùng một hồ sơ là lỗi khó chịu
+   * nhất, vì người dùng không biết tin cái nào.
+   */
+  const assessedCount = useMemo(
+    () =>
+      links.filter((l) => l.riskId === risk.id && l.relevance !== undefined)
+        .length,
+    [links, risk.id],
+  );
+
   /* ------------------- Số kiểm soát đang phủ ------------------- */
 
   const controlCount = useMemo(
@@ -105,12 +132,14 @@ export default function RiskLifecycleBar({
 
   const steps = useMemo(
     () =>
-      riskStepViews(risk, controlCount, weaknessCount).map((s) => ({
-        ...s,
-        onClick: editable
-          ? () => router.push(`/rui-ro/so-dang-ky/${risk.code}/sua`)
-          : undefined,
-      })),
+      riskStepViews(risk, controlCount, weaknessCount, assessedCount).map(
+        (s) => ({
+          ...s,
+          onClick: editable
+            ? () => router.push(`/rui-ro/so-dang-ky/${risk.code}/sua`)
+            : undefined,
+        }),
+      ),
     [risk, controlCount, editable, router],
   );
 

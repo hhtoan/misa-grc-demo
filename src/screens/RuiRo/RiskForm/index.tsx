@@ -21,6 +21,7 @@ import {
   IconFileText,
   IconPlayerPlay,
   IconTrash,
+  IconClipboardCheck,
 } from "@tabler/icons-react";
 import {
   Badge,
@@ -52,7 +53,7 @@ import {
 } from "@/lib/db";
 
 import { useLookups } from "@/lib/domain/lookups";
-import { RISK_SOURCES } from "@/lib/domain/enums";
+import { RISK_SOURCES, ControlRelevance } from "@/lib/domain/enums";
 import {
   emptyRiskForm,
   inherentLevelOf,
@@ -77,7 +78,15 @@ import {
 import {
   isControlOperating,
   notOperatingReason,
+  findLink,
+  removeRiskControlLink,
+  upsertRiskControlLink,
+  useRiskControlLinks,
 } from "@/lib/domain/risk-control-link";
+import {
+  buildAssessRows,
+  summarizeAssessment,
+} from "@/lib/domain/control-assessment";
 import { toTreeSelectNodes, useCategoryTree } from "@/lib/domain/category-tree";
 import RiskSummaryReview from "../RiskSummaryReview";
 import { useSession } from "@/config/session";
@@ -94,9 +103,9 @@ import {
 import { EMPTY_EXTRA, type ControlLite, type WizardExtra } from "./types";
 import StepTitle from "./steps/StepTitle";
 import InherentStep from "./steps/InherentStep";
-import ControlPickerStep from "./steps/ControlPickerStep";
 import ResidualStep from "./steps/ResidualStep";
 import TreatStep from "./steps/TreatStep";
+import ControlAssessmentStep from "./steps/ControlAssessmentStep";
 
 /* ==================================================================
    Wizard khai báo rủi ro, 8 bước.
@@ -367,6 +376,107 @@ export default function RiskFormScreen({ code }: { code?: string }) {
 
     return row.id;
   }
+  /* ------------------ Ghi kết luận mức phù hợp ---------------------- */
+
+  /**
+   * Ghi kết luận kiểm soát có xử lý đúng rủi ro này không.
+   *
+   * Bảo đảm có bản ghi rủi ro TRƯỚC khi ghi liên kết, vì riskControlLink
+   * bắt buộc có riskId. Nếu người dùng bằng cách nào đó tới được bước 4
+   * mà chưa qua bước 2, hàm này tự tạo hồ sơ nháp thay vì im lặng bỏ
+   * qua thao tác vừa rồi.
+   *
+   * Dùng rid trả về từ ensureRiskRecord chứ KHÔNG dùng biến riskId, vì
+   * setState chưa kịp áp dụng trong cùng một lượt render.
+   */
+  function handleAssess(
+    controlId: string,
+    relevance: ControlRelevance,
+    note: string,
+  ) {
+    const rid = ensureRiskRecord();
+
+    if (!rid) {
+      toast.error(
+        "Chưa ghi được kết luận",
+        "Hồ sơ rủi ro chưa được tạo. Anh quay lại bước 2 và điền đủ thông tin nhận diện.",
+      );
+      return;
+    }
+
+    const existing = findLink(linkApi.index, rid, controlId);
+
+    upsertRiskControlLink(lRepo, existing, {
+      riskId: rid,
+      controlId,
+      relevance,
+      relevanceNote: note,
+      assessedBy: user.name,
+    });
+
+    /* Không phù hợp là kết luận có hệ quả, cần nói rõ để người dùng biết
+       kiểm soát đó vừa bị loại khỏi phép tính ở bước 6 */
+    if (relevance === "Không phù hợp") {
+      const c = controls.find((x) => x.id === controlId);
+      toast.warning(
+        `Đã ghi kết luận cho ${c?.code ?? "kiểm soát"}`,
+        "Kiểm soát này không còn được tính là đang bảo vệ rủi ro. Anh nên gỡ nó khỏi hồ sơ, hoặc tìm kiểm soát khác thay thế.",
+      );
+    }
+  }
+
+  /* --------------- Thêm và gỡ kiểm soát khỏi rủi ro ----------------- */
+
+  /**
+   * Cập nhật tập kiểm soát gắn với rủi ro.
+   *
+   * Từ lô E3, thao tác này ghi NGAY vào dữ liệu thay vì gom lại tới lúc
+   * submit. Lý do: bảng đánh giá hiển thị theo bản ghi liên kết, nếu chỉ
+   * giữ trong state thì người dùng mở tab khác sẽ thấy hai bức tranh
+   * khác nhau về cùng một rủi ro.
+   *
+   * Ba việc phải làm cùng lúc khi gỡ một kiểm soát:
+   *   1. Bỏ khỏi extra.controlIds        (trạng thái giao diện)
+   *   2. Gỡ riskId khỏi control.riskIds  (quan hệ hai chiều)
+   *   3. Xoá bản ghi riskControlLink     (thuộc tính của quan hệ)
+   *
+   * Bỏ sót bước 3 thì kết luận cũ sẽ sống lại nếu người dùng gắn lại
+   * kiểm soát đó, và họ sẽ thấy một kết luận mình không hề vừa ghi.
+   */
+  function handleControlIdsChange(nextIds: string[]) {
+    const prevIds = extra.controlIds;
+    patchExtra({ controlIds: nextIds });
+
+    /* Chưa có bản ghi rủi ro thì chỉ giữ trong state, submit sẽ ghi sau.
+       Trường hợp này chỉ xảy ra khi mở form sửa hồ sơ đã đóng */
+    if (!riskId) return;
+
+    const added = nextIds.filter((id) => !prevIds.includes(id));
+    const removed = prevIds.filter((id) => !nextIds.includes(id));
+
+    added.forEach((id) => {
+      const c = controls.find((x) => x.id === id);
+      if (!c) return;
+      const list = c.riskIds ?? [];
+      if (list.includes(riskId)) return;
+      cRepo.update(c.id, { riskIds: [...list, riskId] });
+    });
+
+    removed.forEach((id) => {
+      const c = controls.find((x) => x.id === id);
+      if (c)
+        cRepo.update(c.id, {
+          riskIds: (c.riskIds ?? []).filter((x) => x !== riskId),
+        });
+
+      removeRiskControlLink(lRepo, findLink(linkApi.index, riskId, id));
+    });
+
+    /* Tập kiểm soát đổi thì điểm còn lại đã chấm trước đó có thể lạc
+       hậu. Ghi mốc để hồ sơ hiện nhãn nhắc đánh giá lại */
+    if (added.length > 0 || removed.length > 0)
+      rRepo.update(riskId, { controlsChangedAt: today() });
+  }
 
   /* --------------------- Huỷ hồ sơ đang khai dở ----------------------- */
 
@@ -573,7 +683,34 @@ export default function RiskFormScreen({ code }: { code?: string }) {
    * Điểm yếu là tuỳ chọn và bỏ qua được, nếu neo sai thì bỏ qua bước 5
    * sẽ khoá luôn bước 6.
    */
-  const controlStageDone = activePicked.length > 0 || !!form.noControlAccepted;
+  /* -------------- Tiến độ đánh giá kiểm soát ở bước 4 --------------- */
+
+  /**
+   * Dòng bảng đánh giá, tính ở đây thay vì trong component con.
+   *
+   * Lý do: cổng chặn bước 4 và cảnh báo trên dải vòng đời đều cần các
+   * con số này. Nếu để component con tự tính rồi báo ngược lên, sẽ có
+   * hai bản logic song song và chúng sẽ lệch nhau vào một ngày nào đó.
+   */
+
+  /**
+   * Bước 4 đã xong chưa.
+   *
+   * ĐIỀU KIỆN CHẶT HƠN TRƯỚC. Bản cũ chỉ cần có kiểm soát đang vận hành
+   * là qua. Giờ phải kết luận xong mức phù hợp của MỌI kiểm soát đã
+   * gắn, vì gợi ý điểm còn lại ở bước 6 tính trên tập đã kết luận. Còn
+   * kiểm soát chưa đánh giá thì con số gợi ý dựa trên căn cứ thiếu.
+   */
+  /* -------------- Tiến độ đánh giá kiểm soát ở bước 4 --------------- */
+
+  /**
+   * Dòng bảng đánh giá, tính ở đây thay vì trong component con.
+   *
+   * Lý do: cổng chặn bước 4 và cảnh báo trên dải vòng đời đều cần các
+   * con số này. Nếu để component con tự tính rồi báo ngược lên, sẽ có
+   * hai bản logic song song và chúng sẽ lệch nhau vào một ngày nào đó.
+   */
+
   /* ------------------- Bản ghi rủi ro đang thao tác ------------------- */
 
   /**
@@ -587,10 +724,16 @@ export default function RiskFormScreen({ code }: { code?: string }) {
 
   /* ------------------ Bản ghi phụ thuộc vào rủi ro này ---------------- */
 
-  const allLinks = useCollection(riskControlLinkRepo) as unknown as {
-    id: string;
-    riskId: string;
-  }[];
+  /**
+   * Liên kết Risk và Control của riêng rủi ro đang thao tác.
+   *
+   * Hook tự lọc theo riskId và dựng sẵn bảng tra, nên bảng đánh giá ở
+   * bước 4 không phải quét lại toàn bộ bộ sưu tập mỗi lần render.
+   *
+   * Truyền riskId rỗng vẫn an toàn: hook trả về tập rỗng, không cần
+   * nhánh điều kiện ở nơi gọi.
+   */
+  const linkApi = useRiskControlLinks(riskId);
 
   const allDeficiencies = useCollection(deficiencyRepo) as unknown as {
     id: string;
@@ -610,11 +753,36 @@ export default function RiskFormScreen({ code }: { code?: string }) {
       return { links: [], deficiencies: [], controls: [] as ControlLite[] };
 
     return {
-      links: allLinks.filter((l) => l.riskId === riskId),
+      links: linkApi.links,
       deficiencies: allDeficiencies.filter((d) => d.riskId === riskId),
       controls: controls.filter((c) => (c.riskIds ?? []).includes(riskId)),
     };
-  }, [riskId, allLinks, allDeficiencies, controls]);
+  }, [riskId, linkApi.links, allDeficiencies, controls]);
+
+  const assessRows = useMemo(
+    () => buildAssessRows(controls, extra.controlIds, riskId, linkApi.index),
+    [controls, extra.controlIds, riskId, linkApi.index],
+  );
+
+  const assessSummary = useMemo(
+    () => summarizeAssessment(assessRows),
+    [assessRows],
+  );
+
+  /** Số kiểm soát đã kết luận mức phù hợp, truyền xuống tầng domain */
+  const assessedCount = assessSummary.assessed;
+
+  /**
+   * Bước 4 đã xong chưa.
+   *
+   * ĐIỀU KIỆN CHẶT HƠN TRƯỚC. Bản cũ chỉ cần có kiểm soát đang vận hành
+   * là qua. Giờ phải kết luận xong mức phù hợp của MỌI kiểm soát đã
+   * gắn, vì gợi ý điểm còn lại ở bước 6 tính trên tập đã kết luận. Còn
+   * kiểm soát chưa đánh giá thì con số gợi ý dựa trên căn cứ thiếu.
+   */
+  const controlStageDone =
+    (assessSummary.total > 0 && assessSummary.pending === 0) ||
+    !!form.noControlAccepted;
 
   /* -------------------------- Gợi ý điểm còn lại ---------------------- */
 
@@ -774,12 +942,37 @@ export default function RiskFormScreen({ code }: { code?: string }) {
     }
 
     /* Cổng chặn riêng của bước 4, không thuộc schema */
+    /* ---------------- Cổng chặn riêng của bước 4 ----------------
+       Không thuộc riskFormSchema vì đây là điều kiện về QUAN HỆ giữa
+       rủi ro và kiểm soát, không phải điều kiện về trường của rủi ro.
+
+       Ba nhánh, mỗi nhánh dẫn tới một việc phải làm khác hẳn nhau, nên
+       thông báo cũng phải khác nhau chứ không gộp thành một câu chung */
     if (stage === "controls" && !controlStageDone) {
+      /* Nhánh 1: chưa gắn kiểm soát nào */
+      if (assessSummary.total === 0) {
+        toast.error(
+          "Chưa chuyển bước được",
+          requiresControl
+            ? "Rủi ro vốn có mức Cao trở lên bắt buộc phải có kiểm soát. Anh tìm kiểm soát ở phần Thêm kiểm soát từ thư viện."
+            : "Anh gắn ít nhất 1 kiểm soát, hoặc tích ô chấp nhận rủi ro nếu không áp dụng kiểm soát nào.",
+        );
+        return;
+      }
+
+      /* Nhánh 2: đã gắn nhưng chưa kết luận xong mức phù hợp */
+      if (assessSummary.pending > 0) {
+        toast.error(
+          `Còn ${assessSummary.pending} kiểm soát chưa đánh giá`,
+          "Với mỗi kiểm soát đã gắn, anh chọn mức phù hợp ở cột cuối bảng. Gợi ý điểm còn lại ở bước 6 tính trên tập kiểm soát đã kết luận, nên chưa đánh giá xong thì con số gợi ý sẽ dựa trên căn cứ thiếu.",
+        );
+        return;
+      }
+
+      /* Nhánh 3: đã đánh giá đủ nhưng không kiểm soát nào đang bảo vệ */
       toast.error(
         "Chưa chuyển bước được",
-        requiresControl
-          ? "Rủi ro vốn có mức Cao trở lên bắt buộc gắn ít nhất 1 kiểm soát đã phê duyệt."
-          : "Chọn ít nhất 1 kiểm soát, hoặc tuyên bố chấp nhận rủi ro nếu không áp dụng kiểm soát nào.",
+        "Không có kiểm soát nào thực sự đang bảo vệ rủi ro này. Kiểm soát phải đang vận hành, đã có kết luận hiệu lực, và được kết luận phù hợp với rủi ro.",
       );
       return;
     }
@@ -844,6 +1037,11 @@ export default function RiskFormScreen({ code }: { code?: string }) {
    * chiều: thêm id vào kiểm soát mới chọn, bỏ khỏi kiểm soát bị bỏ.
    */
   function applyControlLinks(riskId: string, nextIds: string[]): boolean {
+    /* Từ lô E3, tập kiểm soát đã được ghi ngay ở bước 4 khi rủi ro có
+       bản ghi thật. Hàm này chỉ còn vai trò dự phòng cho nhánh submit
+       không đi qua bước 4, ví dụ hồ sơ nhân bản hoặc nhập từ ngoài */
+    if (riskId === draftId && draftId) return false;
+
     let changed = false;
 
     controls.forEach((c) => {
@@ -1406,19 +1604,46 @@ export default function RiskFormScreen({ code }: { code?: string }) {
             />
           )}
 
-          {/* ============== Bước 4: Chọn kiểm soát ============== */}
           {/* ======= Bước 4: Đánh giá kiểm soát hiện hữu ======= */}
           {stage === "controls" && (
-            <ControlPickerStep
+            <ControlAssessmentStep
+              riskId={riskId}
               controls={controls}
               value={extra.controlIds}
+              linkIndex={linkApi.index}
               noControlAccepted={!!form.noControlAccepted}
               requiresControl={requiresControl}
-              stageDone={controlStageDone}
               unitName={(id) => lk.unitName(id)}
-              onChange={(ids) => patchExtra({ controlIds: ids })}
+              onChange={handleControlIdsChange}
               onToggleAccept={(v) => patch({ noControlAccepted: v })}
+              onAssess={handleAssess}
             />
+          )}
+
+          {/* ---- Gợi ý từ kết luận vừa ghi ở bước 4 ---- */}
+          {assessSummary.mismatched + assessSummary.failedKeyControls > 0 && (
+            <div className="flex gap-2 rounded-ctrl border border-lv-medium-border bg-lv-medium-bg p-2.5 text-[12px] leading-4 text-lv-medium-text">
+              <IconClipboardCheck size={16} className="mt-px shrink-0" />
+              <span>
+                Ở bước 4 anh vừa ghi nhận{" "}
+                {assessSummary.mismatched > 0 && (
+                  <>
+                    <b>{assessSummary.mismatched} kiểm soát không phù hợp</b>
+                    {assessSummary.failedKeyControls > 0 && " và "}
+                  </>
+                )}
+                {assessSummary.failedKeyControls > 0 && (
+                  <>
+                    <b>
+                      {assessSummary.failedKeyControls} kiểm soát trọng yếu đang
+                      Không hiệu quả
+                    </b>
+                  </>
+                )}
+                . Đây thường là dấu hiệu của một khe hở thật, nên cân nhắc ghi
+                nhận điểm yếu ngay tại đây thay vì để lần rà soát sau.
+              </span>
+            </div>
           )}
 
           {/* ============== Bước 5: Nghi ngờ điểm yếu ============== */}
@@ -1732,14 +1957,16 @@ export default function RiskFormScreen({ code }: { code?: string }) {
                   treatmentNote={form.treatmentNote}
                   reviewDate={form.reviewDate}
                   noControlAccepted={form.noControlAccepted}
-                  controls={pickedControls.map((c) => ({
-                    code: c.code,
-                    name: c.name,
-                    type: c.type,
-                    status: c.status,
-                    isKeyControl: c.isKeyControl,
-                    effectiveness: overallEffectivenessOf(c),
-                    pending: !isControlOperating(c.status),
+                  /* Dùng dòng bảng đã tính ở bước 4 thay vì tự tính lại,
+                     để khối rà soát nói đúng con số mà bước 4 vừa nêu */
+                  controls={assessRows.map((r) => ({
+                    code: r.code,
+                    name: r.name,
+                    type: r.type,
+                    status: r.status,
+                    isKeyControl: r.isKeyControl,
+                    effectiveness: r.overall,
+                    pending: !r.counted,
                   }))}
                   weakness={
                     extra.weakness.has && extra.weakness.name.trim()

@@ -48,7 +48,12 @@ import {
 } from "@/components/ui";
 import { PageContainer, PageHeader } from "@/components/layout";
 import { LEVEL_TONE } from "@/components/domain";
-import { controlRepo, riskRepo, useCollection } from "@/lib/db";
+import {
+  controlRepo,
+  riskRepo,
+  useCollection,
+  riskControlLinkRepo,
+} from "@/lib/db";
 import { useLookups } from "@/lib/domain/lookups";
 import {
   RISK_LEVEL_ORDER,
@@ -130,6 +135,22 @@ export default function SoDangKyRuiRoScreen() {
   }, [controls]);
 
   const controlCount = (id: string) => controlCountOf.get(id) ?? 0;
+
+  const links = useCollection(riskControlLinkRepo) as unknown as {
+    riskId: string;
+    relevance?: string;
+  }[];
+
+  const assessedMap = useMemo(() => {
+    const m = new Map<string, number>();
+    links.forEach((l) => {
+      if (l.relevance === undefined) return;
+      m.set(l.riskId, (m.get(l.riskId) ?? 0) + 1);
+    });
+    return m;
+  }, [links]);
+
+  const assessedCountOf = (riskId: string) => assessedMap.get(riskId) ?? 0;
 
   const lk = useLookups();
 
@@ -637,7 +658,7 @@ export default function SoDangKyRuiRoScreen() {
       minWidth: 220,
       render: (r) => (
         <MissingInfoCell
-          items={riskMissingInfo(r, controlCount(r.id))}
+          items={riskMissingInfo(r, controlCount(r.id), assessedCountOf(r.id))}
           maxVisible={2}
         />
       ),
