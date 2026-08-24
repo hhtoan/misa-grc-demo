@@ -106,6 +106,7 @@ import InherentStep from "./steps/InherentStep";
 import ResidualStep from "./steps/ResidualStep";
 import TreatStep from "./steps/TreatStep";
 import ControlAssessmentStep from "./steps/ControlAssessmentStep";
+import type { AssessDrawerResult } from "./steps/ControlAssessDrawer";
 
 /* ==================================================================
    Wizard khai báo rủi ro, 8 bước.
@@ -421,6 +422,37 @@ export default function RiskFormScreen({ code }: { code?: string }) {
       toast.warning(
         `Đã ghi kết luận cho ${c?.code ?? "kiểm soát"}`,
         "Kiểm soát này không còn được tính là đang bảo vệ rủi ro. Anh nên gỡ nó khỏi hồ sơ, hoặc tìm kiểm soát khác thay thế.",
+      );
+    }
+  }
+
+  /* --------------- Kết quả micro-flow đánh giá sâu ------------------ */
+
+  /**
+   * Nhận kết quả trọn vẹn của luồng 4 bước rồi ghi theo ĐÚNG THỨ TỰ.
+   *
+   *   1. Liên kết Risk-Control  : luôn có, đây là kết luận bắt buộc
+   *   2. Đợt tự đánh giá nhanh  : tuỳ chọn, dựng ở nhịp E4b
+   *   3. Điểm yếu phát hiện     : tuỳ chọn, dựng ở nhịp E4b
+   *
+   * Thứ tự không đảo được: đợt kiểm tra cần controlId, còn điểm yếu cần
+   * cả riskId lẫn controlId. Ghi ngược lại thì bản ghi sau sẽ trỏ tới
+   * một bản ghi chưa tồn tại.
+   *
+   * Ở E4a, bước 3 và 4 của ngăn kéo còn là chỗ chờ nên hai trường oe và
+   * weakness luôn vắng. Hai nhánh dưới đây giữ sẵn để E4b điền vào, và
+   * quan trọng hơn là bảo đảm nếu chúng có giá trị thì hệ thống KHÔNG
+   * im lặng bỏ qua dữ liệu người dùng vừa nhập.
+   */
+  function handleDeepAssess(result: AssessDrawerResult) {
+    /* 1. Kết luận mức phù hợp, dùng chung đường ghi với bảng */
+    handleAssess(result.controlId, result.relevance, result.relevanceNote);
+
+    /* 2 và 3. Chưa dựng ở nhịp này, báo rõ thay vì nuốt dữ liệu */
+    if (result.oe || result.weakness) {
+      toast.info?.(
+        "Đã lưu mức phù hợp",
+        "Phần tự đánh giá hiệu quả và ghi nhận điểm yếu sẽ được lưu ở nhịp tiếp theo.",
       );
     }
   }
@@ -1608,6 +1640,8 @@ export default function RiskFormScreen({ code }: { code?: string }) {
           {stage === "controls" && (
             <ControlAssessmentStep
               riskId={riskId}
+              riskCode={riskCode}
+              riskName={form.name}
               controls={controls}
               value={extra.controlIds}
               linkIndex={linkApi.index}
@@ -1617,6 +1651,7 @@ export default function RiskFormScreen({ code }: { code?: string }) {
               onChange={handleControlIdsChange}
               onToggleAccept={(v) => patch({ noControlAccepted: v })}
               onAssess={handleAssess}
+              onDeepAssess={handleDeepAssess}
             />
           )}
 

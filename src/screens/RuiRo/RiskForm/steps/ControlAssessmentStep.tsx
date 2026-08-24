@@ -7,12 +7,14 @@ import {
   IconChevronDown,
   IconChevronUp,
   IconInfoCircle,
+  IconListSearch,
   IconPlus,
   IconShieldCheck,
   IconShieldX,
   IconTrash,
   IconX,
 } from "@tabler/icons-react";
+
 import {
   Badge,
   Button,
@@ -43,6 +45,10 @@ import type { RiskControlLink } from "@/lib/domain/schema";
 import type { ControlRelevance } from "@/lib/domain/enums";
 import { cn } from "@/lib/cn";
 import StepTitle from "./StepTitle";
+import ControlAssessDrawer, {
+  type AssessDrawerResult,
+} from "./ControlAssessDrawer";
+
 import type { ControlLite } from "../types";
 
 /* ==================================================================
@@ -68,6 +74,9 @@ import type { ControlLite } from "../types";
 export interface ControlAssessmentStepProps {
   /** Rỗng khi rủi ro chưa được tạo, bảng vẫn render được */
   riskId: string;
+  /** Bối cảnh rủi ro, hiện trong ngăn kéo để không mất ngữ cảnh */
+  riskCode: string;
+  riskName: string;
 
   controls: ControlLite[];
   /** Id kiểm soát đã gắn với rủi ro này */
@@ -82,6 +91,15 @@ export interface ControlAssessmentStepProps {
 
   onChange: (ids: string[]) => void;
   onToggleAccept: (v: boolean) => void;
+  /**
+   * Kết quả trọn vẹn của micro-flow 4 bước.
+   *
+   * Tách khỏi onAssess vì hai đường ghi khác nhau: onAssess là kết luận
+   * nhanh ngay trên dòng bảng, chỉ có mức phù hợp. Còn đây là kết quả
+   * đánh giá sâu, có thể kèm đợt tự kiểm tra và điểm yếu mới.
+   */
+  onDeepAssess: (result: AssessDrawerResult) => void;
+
   onAssess: (
     controlId: string,
     relevance: ControlRelevance,
@@ -91,6 +109,8 @@ export interface ControlAssessmentStepProps {
 
 export default function ControlAssessmentStep({
   riskId,
+  riskCode,
+  riskName,
   controls,
   value,
   linkIndex,
@@ -100,6 +120,7 @@ export default function ControlAssessmentStep({
   onChange,
   onToggleAccept,
   onAssess,
+  onDeepAssess,
 }: ControlAssessmentStepProps) {
   const [filter, setFilter] = useState<AssessFilterKey>("all");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -108,6 +129,8 @@ export default function ControlAssessmentStep({
 
   /** Dòng đang mở ô lý do, khoá là controlId, giá trị là nội dung đang gõ */
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
+  /** Id kiểm soát đang mở ngăn kéo đánh giá sâu, null là đang đóng */
+  const [assessingId, setAssessingId] = useState<string | null>(null);
 
   /* ------------------------- Dữ liệu bảng -------------------------- */
 
@@ -121,6 +144,18 @@ export default function ControlAssessmentStep({
   const visibleRows = useMemo(
     () => rows.filter((r) => matchAssessFilter(filter, r)),
     [rows, filter],
+  );
+
+  /**
+   * Dòng đang mở trong ngăn kéo.
+   *
+   * Tra lại từ rows chứ KHÔNG giữ bản sao trong state. Nhờ vậy khi người
+   * dùng vừa ghi kết luận, ngăn kéo mở lại sẽ thấy dữ liệu mới ngay,
+   * thay vì thấy ảnh chụp lúc bấm nút.
+   */
+  const assessingRow = useMemo(
+    () => rows.find((r) => r.id === assessingId) ?? null,
+    [rows, assessingId],
   );
 
   const stageDone =
@@ -150,6 +185,10 @@ export default function ControlAssessmentStep({
   }
 
   function removeControl(id: string) {
+    /* Gỡ đúng dòng đang mở thì phải đóng ngăn kéo, nếu không nó sẽ trỏ
+       tới một kiểm soát không còn trong danh sách */
+    if (assessingId === id) setAssessingId(null);
+
     onChange(value.filter((x) => x !== id));
     /* Dọn luôn ô lý do đang mở của dòng đó, tránh state rác treo lại */
     setNoteDraft((prev) => {
@@ -278,7 +317,7 @@ export default function ControlAssessmentStep({
       ) : (
         <div className="overflow-hidden rounded-card border border-border-light">
           {/* ------------------ Tiêu đề cột ------------------ */}
-          <div className="hidden bg-surface-alt px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-text-secondary lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(0,1.4fr)_minmax(0,1.6fr)_minmax(0,2fr)_40px] lg:gap-3">
+          <div className="hidden bg-surface-alt px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-text-secondary lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(0,1.4fr)_minmax(0,1.6fr)_minmax(0,2fr)_84px] lg:gap-3">
             <span>Kiểm soát</span>
             <span>Vận hành</span>
             <span>Hiệu lực</span>
@@ -304,7 +343,7 @@ export default function ControlAssessmentStep({
                       !row.assessed && "bg-lv-medium-bg/20",
                     )}
                   >
-                    <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,3fr)_minmax(0,1.4fr)_minmax(0,1.6fr)_minmax(0,2fr)_40px] lg:items-center lg:gap-3">
+                    <div className="grid grid-cols-1 gap-2 lg:grid-cols-[minmax(0,3fr)_minmax(0,1.4fr)_minmax(0,1.6fr)_minmax(0,2fr)_84px] lg:items-center lg:gap-3">
                       {/* ---------- Cột 1: kiểm soát ---------- */}
                       <div className="flex min-w-0 flex-col gap-0.5">
                         <span className="flex min-w-0 flex-wrap items-center gap-1.5">
@@ -397,8 +436,23 @@ export default function ControlAssessmentStep({
                         />
                       </div>
 
-                      {/* ---------- Cột 5: gỡ khỏi rủi ro ---------- */}
-                      <div className="flex justify-end">
+                      {/* -------- Cột 5: đánh giá sâu và gỡ -------- */}
+                      <div className="flex items-center justify-end gap-0.5">
+                        <Tooltip content="Mở luồng đánh giá 4 bước: xem nhanh hồ sơ, xác nhận phù hợp, cập nhật hiệu quả, ghi nhận điểm yếu">
+                          <button
+                            type="button"
+                            onClick={() => setAssessingId(row.id)}
+                            className={cn(
+                              "flex h-7 w-7 items-center justify-center rounded-ctrl transition-colors",
+                              row.assessed
+                                ? "text-icon-neutral hover:bg-brand-light hover:text-brand"
+                                : "bg-brand-light text-brand hover:bg-brand hover:text-white",
+                            )}
+                          >
+                            <IconListSearch size={15} />
+                          </button>
+                        </Tooltip>
+
                         <Tooltip content="Gỡ kiểm soát này khỏi rủi ro">
                           <button
                             type="button"
@@ -623,6 +677,19 @@ export default function ControlAssessmentStep({
           </span>
         </div>
       )}
+      {/* ============== Ngăn kéo đánh giá sâu ============== */}
+      <ControlAssessDrawer
+        open={assessingRow !== null}
+        row={assessingRow}
+        riskCode={riskCode}
+        riskName={riskName}
+        unitName={unitName}
+        onClose={() => setAssessingId(null)}
+        onSubmit={(result) => {
+          onDeepAssess(result);
+          setAssessingId(null);
+        }}
+      />
     </ContentCard>
   );
 }
