@@ -20,6 +20,8 @@ import {
   IconSparkles,
   IconClipboardList,
   IconTool,
+  IconLockCheck,
+  IconShieldOff,
 } from "@tabler/icons-react";
 import {
   Badge,
@@ -37,6 +39,7 @@ import {
   RiskBadge,
   ScoreSelector,
   Tooltip,
+  TreeSelect,
   type ScoreValue,
 } from "@/components/ui";
 import {
@@ -72,6 +75,7 @@ import {
   shortSuggestionHint,
   suggestResidual,
 } from "@/lib/domain/residual-suggestion";
+import { toTreeSelectNodes, useCategoryTree } from "@/lib/domain/category-tree";
 import RiskSummaryReview from "../RiskSummaryReview";
 import { useSession } from "@/config/session";
 import { cn } from "@/lib/cn";
@@ -372,6 +376,67 @@ export default function RiskFormScreen({ code }: { code?: string }) {
     () => (editing ? deficiencies.filter((d) => d.riskId === editing.id) : []),
     [deficiencies, editing],
   );
+
+  /* ------------------ Cây danh mục và chính sách nhánh ---------------- */
+
+  const catTree = useCategoryTree("Rủi ro");
+
+  const categoryNodes = useMemo(
+    () => toTreeSelectNodes(catTree.tree),
+    [catTree.tree],
+  );
+
+  /** Tên nhánh đang áp chính sách không khoan nhượng, undefined nếu không có */
+  const zeroToleranceBranch = catTree.zeroToleranceBranchName(form.categoryId);
+  const derivedZeroTolerance = !!zeroToleranceBranch;
+
+  /**
+   * Đồng bộ cờ không khoan nhượng theo nhóm rủi ro đã chọn.
+   *
+   * Cờ này KHÔNG còn do người khai báo tự bật. Nó là chính sách của tổ
+   * chức đặt ở nhánh danh mục, nên mọi rủi ro thuộc nhánh đó đều tuân
+   * theo. Hai người khai cùng một loại rủi ro sẽ ra cùng một kết luận.
+   *
+   * Hai chốt an toàn:
+   *
+   *   1. Bỏ qua khi cây danh mục rỗng. Ở lần render đầu, useCollection có
+   *      thể chưa nạp xong dữ liệu, nếu chạy thì sẽ vô tình xoá cờ của
+   *      một rủi ro cũ đang bật đúng.
+   *
+   *   2. Bỏ qua khi CHƯA có nhánh nào được đánh dấu trong hệ thống. Nhờ
+   *      vậy trước khi Ban QTRR cấu hình danh mục, mọi rủi ro mẫu đang
+   *      bật cờ bằng tay vẫn giữ nguyên, không bị xoá hàng loạt.
+   */
+  useEffect(() => {
+    if (catTree.tree.length === 0) return;
+    if (!catTree.hasAnyZeroToleranceBranch) return;
+    if (form.isZeroTolerance === derivedZeroTolerance) return;
+
+    /* Chuyển sang không khoan nhượng mà đang chọn Chấp nhận thì phải đổi
+       phương án, nếu không schema sẽ chặn lúc lưu ở một bước rất xa */
+    const mustResetTreatment =
+      derivedZeroTolerance && form.treatment === "Chấp nhận";
+
+    patch({
+      isZeroTolerance: derivedZeroTolerance,
+      ...(mustResetTreatment
+        ? { treatment: "Giảm thiểu" as typeof form.treatment }
+        : {}),
+    });
+
+    if (mustResetTreatment)
+      toast.warning(
+        "Đã đổi phương án xử lý",
+        "Nhóm rủi ro vừa chọn thuộc nhánh không khoan nhượng, nên phương án Chấp nhận không dùng được. Hệ thống tạm đặt Giảm thiểu, anh chỉnh lại ở bước 7 nếu cần.",
+      );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    derivedZeroTolerance,
+    form.isZeroTolerance,
+    form.treatment,
+    catTree.tree.length,
+    catTree.hasAnyZeroToleranceBranch,
+  ]);
 
   const pickedControls = useMemo(
     () => controls.filter((c) => extra.controlIds.includes(c.id)),
@@ -929,14 +994,18 @@ export default function RiskFormScreen({ code }: { code?: string }) {
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <div data-field="categoryId">
-                  <Select
+                  <TreeSelect
                     label="Nhóm rủi ro"
                     required
-                    searchable
-                    placeholder="Chọn nhóm"
-                    options={lk.riskCategoryOptions}
+                    placeholder="Chọn theo cây danh mục"
+                    options={categoryNodes}
                     value={form.categoryId || null}
                     error={errors.categoryId}
+                    hint={
+                      errors.categoryId
+                        ? undefined
+                        : "Nhóm rủi ro quyết định chính sách không khoan nhượng"
+                    }
                     onChange={(v) => patch({ categoryId: v ?? "" })}
                   />
                 </div>
@@ -988,20 +1057,74 @@ export default function RiskFormScreen({ code }: { code?: string }) {
                 </div>
               </div>
 
+              {/* ---------- Không khoan nhượng: suy từ nhánh danh mục ---------- */}
               <div
                 data-field="isZeroTolerance"
-                className="flex flex-col gap-1 rounded-ctrl bg-surface-alt px-3 py-2.5"
+                className={cn(
+                  "flex gap-2 rounded-card border p-3",
+                  form.isZeroTolerance
+                    ? "border-lv-critical-border bg-lv-critical-bg"
+                    : "border-border-light bg-surface-alt",
+                )}
               >
-                <Checkbox
-                  label="Rủi ro không khoan nhượng"
-                  checked={form.isZeroTolerance}
-                  onChange={(e) => patch({ isZeroTolerance: e.target.checked })}
-                />
-                <span className="pl-6 text-[11px] leading-4 text-text-hint">
-                  Tổ chức không chấp nhận rủi ro này ở bất kỳ mức nào, ví dụ
-                  gian lận hoặc vi phạm pháp luật. Bật cờ này thì ở bước 7{" "}
-                  <b>không chọn được</b> phương án Chấp nhận.
-                </span>
+                {form.isZeroTolerance ? (
+                  <IconLockCheck
+                    size={17}
+                    className="mt-px shrink-0 text-lv-critical-text"
+                  />
+                ) : (
+                  <IconShieldOff
+                    size={17}
+                    className="mt-px shrink-0 text-icon-neutral"
+                  />
+                )}
+
+                <div className="flex min-w-0 flex-col gap-1">
+                  <span
+                    className={cn(
+                      "text-[13px] font-semibold",
+                      form.isZeroTolerance
+                        ? "text-lv-critical-text"
+                        : "text-text-primary",
+                    )}
+                  >
+                    {form.isZeroTolerance
+                      ? "Rủi ro không khoan nhượng"
+                      : "Không thuộc nhóm không khoan nhượng"}
+                  </span>
+
+                  <span
+                    className={cn(
+                      "text-[12px] leading-4",
+                      form.isZeroTolerance
+                        ? "text-lv-critical-text"
+                        : "text-text-secondary",
+                    )}
+                  >
+                    {form.isZeroTolerance ? (
+                      zeroToleranceBranch ? (
+                        <>
+                          Chính sách này áp từ nhánh danh mục{" "}
+                          <b>{zeroToleranceBranch}</b>, do Ban QTRR đặt ở màn
+                          Quản trị danh mục. Ở bước 7, phương án{" "}
+                          <b>Chấp nhận</b> sẽ không chọn được.
+                        </>
+                      ) : (
+                        <>
+                          Cờ này được bật từ trước ở hồ sơ. Sau khi Ban QTRR
+                          đánh dấu nhánh danh mục, cờ sẽ tự đồng bộ theo nhóm
+                          rủi ro.
+                        </>
+                      )
+                    ) : (
+                      <>
+                        Cờ này <b>suy tự động</b> từ nhánh danh mục của nhóm rủi
+                        ro, không nhập tay. Chọn một nhóm thuộc nhánh không
+                        khoan nhượng thì cờ tự bật.
+                      </>
+                    )}
+                  </span>
+                </div>
               </div>
             </ContentCard>
           )}

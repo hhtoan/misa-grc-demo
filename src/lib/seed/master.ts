@@ -153,53 +153,79 @@ export const SEED_EMPLOYEES: Employee[] = [
    ================================================================== */
 
 export const SEED_CATEGORIES: Category[] = [
+  /* ---------- Ba nhóm rủi ro cấp 1 ---------- */
+  {
+    ...seedBase("cat-grp-hd", "RR-NHOM-HD"),
+    name: "Rủi ro hoạt động",
+    group: "Rủi ro",
+    parentId: null,
+    description: "Rủi ro phát sinh từ con người, quy trình và hệ thống nội bộ",
+  },
+  {
+    ...seedBase("cat-grp-tc", "RR-NHOM-TC"),
+    name: "Rủi ro tài chính",
+    group: "Rủi ro",
+    parentId: null,
+    description: "Rủi ro liên quan tới dòng tiền, công nợ và tỷ giá",
+  },
+  {
+    ...seedBase("cat-grp-tt", "RR-NHOM-TT"),
+    name: "Rủi ro tuân thủ và bảo mật",
+    group: "Rủi ro",
+    parentId: null,
+    description:
+      "Vi phạm pháp luật, quy định nội bộ và an toàn thông tin. Tổ chức không chấp nhận rủi ro này ở bất kỳ mức nào",
+    /* Cờ đặt ở CHA, hai danh mục con tự thừa hưởng. Đây là cách đúng:
+       chính sách phát biểu ở một chỗ, không rải ở từng nút con */
+    isZeroToleranceBranch: true,
+  },
   {
     ...seedBase("cat-cl", "CAT-001"),
     name: "Rủi ro chiến lược",
     group: "Rủi ro",
-    parentId: null,
+    parentId: "cat-grp-hd",
     description: "Ảnh hưởng tới định hướng và mục tiêu dài hạn",
   },
   {
     ...seedBase("cat-vh", "CAT-002"),
     name: "Rủi ro vận hành",
     group: "Rủi ro",
-    parentId: null,
+    parentId: "cat-grp-hd",
     description: "Quy trình, con người, hệ thống trong vận hành hằng ngày",
   },
   {
     ...seedBase("cat-tc", "CAT-003"),
     name: "Rủi ro tài chính",
     group: "Rủi ro",
-    parentId: null,
+    parentId: "cat-grp-tc",
     description: "Dòng tiền, công nợ, tỷ giá, chi phí vốn",
   },
   {
     ...seedBase("cat-tt", "CAT-004"),
     name: "Rủi ro tuân thủ",
     group: "Rủi ro",
-    parentId: null,
+    parentId: "cat-grp-tt",
     description: "Pháp lý, quy định của cơ quan quản lý và quy chế nội bộ",
   },
   {
     ...seedBase("cat-cntt", "CAT-005"),
     name: "Rủi ro công nghệ thông tin",
     group: "Rủi ro",
-    parentId: "cat-vh",
+    parentId: "cat-grp-hd",
     description: "Hạ tầng, phần mềm, dữ liệu và tính sẵn sàng hệ thống",
   },
   {
     ...seedBase("cat-attt", "CAT-006"),
     name: "Rủi ro an toàn thông tin",
     group: "Rủi ro",
-    parentId: "cat-cntt",
+    parentId: "cat-grp-tt",
     description: "Bảo mật, phân quyền, rò rỉ và lộ lọt dữ liệu",
   },
   {
     ...seedBase("cat-ns", "CAT-007"),
     name: "Rủi ro nhân sự",
     group: "Rủi ro",
-    parentId: "cat-vh",
+    parentId: "cat-grp-hd",
     description: "Tuyển dụng, giữ chân và kế thừa nhân sự trọng yếu",
   },
   {
@@ -332,7 +358,7 @@ function objective(
   unitId: string,
   ownerId: string,
   target: string,
-  progress: number
+  progress: number,
 ): Objective {
   return {
     ...seedBase(id, code),
@@ -359,7 +385,7 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-cty",
     "emp-ceo",
     "Doanh thu 2.500 tỷ",
-    62
+    62,
   ),
   objective(
     "obj-02",
@@ -370,7 +396,7 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-cty",
     "emp-son",
     "Tỷ lệ gia hạn 90%",
-    74
+    74,
   ),
   objective(
     "obj-03",
@@ -381,7 +407,7 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-sx",
     "emp-binh",
     "Thời gian phát hành 4 tuần",
-    48
+    48,
   ),
   objective(
     "obj-04",
@@ -392,7 +418,7 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-it",
     "emp-yen",
     "Tính sẵn sàng 99,9%",
-    88
+    88,
   ),
   objective(
     "obj-05",
@@ -403,7 +429,7 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-it",
     "emp-yen",
     "0 sự cố nghiêm trọng",
-    95
+    95,
   ),
   objective(
     "obj-06",
@@ -414,7 +440,7 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-tc",
     "emp-mai",
     "Nợ quá hạn dưới 3%",
-    55
+    55,
   ),
   objective(
     "obj-07",
@@ -425,7 +451,7 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-ns",
     "emp-anh",
     "Tỷ lệ giữ chân 92%",
-    70
+    70,
   ),
   objective(
     "obj-08",
@@ -436,6 +462,6 @@ export const SEED_OBJECTIVES: Objective[] = [
     "unit-cty",
     "emp-ha",
     "100% hạng mục bắt buộc",
-    40
+    40,
   ),
 ];

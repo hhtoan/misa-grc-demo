@@ -79,7 +79,24 @@ export const categorySchema = baseEntity.extend({
   group: z.enum(["Rủi ro", "Sự kiện"]).default("Rủi ro"),
   parentId: z.string().nullable().default(null),
   description: z.string().default(""),
+
+  /**
+   * Đánh dấu nhánh không khoan nhượng.
+   *
+   * Bật ở một nút thì MỌI danh mục con cháu của nút đó đều thừa hưởng,
+   * và rủi ro thuộc các danh mục ấy tự động là rủi ro không khoan
+   * nhượng. Người dùng không tự bật cờ ở từng rủi ro nữa: đây là chính
+   * sách của tổ chức đặt ở danh mục, không phải lựa chọn của người khai
+   * báo.
+   *
+   * Dùng .optional() chứ không .default(false) vì createRepository chỉ
+   * spread input, không parse qua zod. Đặt .default() sẽ làm kiểu output
+   * thành bắt buộc và kéo theo lỗi TS2739 ở toàn bộ seed danh mục, đúng
+   * như đã gặp với noControlAccepted ở lô D.
+   */
+  isZeroToleranceBranch: z.boolean().optional(),
 });
+
 export type Category = z.infer<typeof categorySchema>;
 
 export const processSchema = baseEntity.extend({

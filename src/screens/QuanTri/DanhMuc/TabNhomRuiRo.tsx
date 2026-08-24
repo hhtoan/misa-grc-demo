@@ -7,6 +7,7 @@ import CategoryTable, {
   type SimpleRepo,
 } from "./CategoryTable";
 import { SCOPE_NOTE, resolveScope, type AnyCategory } from "./category-scope";
+import ZeroTolerancePanel from "./ZeroTolerancePanel";
 
 interface WithCategory {
   categoryId?: string;
@@ -47,17 +48,24 @@ export default function TabNhomRuiRo({ canEdit }: { canEdit: boolean }) {
   );
 
   return (
-    <CategoryTable
-      canEdit={canEdit}
-      records={records}
-      repo={cRepo}
-      createPatch={scope.createPatch}
-      usageOf={usageOf}
-      usageLabel="rủi ro"
-      entityLabel="nhóm rủi ro"
-      codeHint="VD: RR-CNTT"
-      namePlaceholder="VD: Rủi ro công nghệ thông tin"
-      note={`Nhóm rủi ro quyết định cách tổng hợp báo cáo theo loại rủi ro. Nhóm đang được rủi ro tham chiếu thì không xoá được, hãy chuyển sang Ngừng sử dụng để giữ nguyên số liệu các kỳ trước. ${SCOPE_NOTE[scope.strategy]}`}
-    />
+    <div className="flex flex-col gap-4">
+      {/* Cấu hình chính sách đặt TRÊN bảng danh mục, vì đây là việc Ban
+          QTRR làm một lần và chi phối toàn bộ hồ sơ rủi ro, khác với
+          việc thêm sửa xoá danh mục ở bảng bên dưới */}
+      <ZeroTolerancePanel canEdit={canEdit} />
+
+      <CategoryTable
+        canEdit={canEdit}
+        records={records}
+        repo={cRepo}
+        createPatch={scope.createPatch}
+        usageOf={usageOf}
+        usageLabel="rủi ro"
+        entityLabel="nhóm rủi ro"
+        codeHint="VD: RR-CNTT"
+        namePlaceholder="VD: Rủi ro công nghệ thông tin"
+        note={`Nhóm rủi ro quyết định cách tổng hợp báo cáo theo loại rủi ro. Nhóm đang được rủi ro tham chiếu thì không xoá được, hãy chuyển sang Ngừng sử dụng để giữ nguyên số liệu các kỳ trước. ${SCOPE_NOTE[scope.strategy]}`}
+      />
+    </div>
   );
 }

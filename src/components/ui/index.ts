@@ -4,6 +4,7 @@ export * from "./Field";
 export * from "./Input";
 export * from "./Textarea";
 export * from "./Select";
+export * from "./TreeSelect";
 export * from "./FilterCombobox";
 export * from "./Checkbox";
 export * from "./Badge";

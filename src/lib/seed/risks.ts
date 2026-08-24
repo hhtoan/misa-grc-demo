@@ -25,7 +25,11 @@ export const SEED_RISKS: Risk[] = [
     treatment: "Giảm thiểu",
     treatmentNote:
       "Đầu tư hạ tầng dự phòng, diễn tập chuyển đổi dự phòng định kỳ 6 tháng một lần.",
-    isZeroTolerance: true,
+    /* Trước đây bật bằng tay, nhưng cat-cntt không thuộc nhánh không
+       khoan nhượng. Gián đoạn hạ tầng là rủi ro cần giảm thiểu, không
+       phải loại tổ chức từ chối chấp nhận ở mọi mức. Để nguyên true sẽ
+       mâu thuẫn với risk-08 cùng nhóm đang để false. */
+    isZeroTolerance: false,
     isKeyRisk: true,
     identifiedDate: "2026-01-12",
     reviewDate: "2026-09-30",
@@ -260,8 +264,7 @@ export const SEED_RISKS: Risk[] = [
     description:
       "Khách hàng không gia hạn dịch vụ vì thời gian phản hồi hỗ trợ kéo dài.",
     cause: "Số lượng yêu cầu tăng nhanh, quy trình phân luồng chưa tối ưu.",
-    consequence:
-      "Doanh thu định kỳ suy giảm, chi phí tìm khách hàng mới tăng.",
+    consequence: "Doanh thu định kỳ suy giảm, chi phí tìm khách hàng mới tăng.",
     categoryId: "cat-vh",
     objectiveIds: ["obj-02", "obj-01"],
     unitId: "unit-kd",
